@@ -462,6 +462,10 @@ body.white-shell.theme-light .brand-confirm {
   stroke-linecap: round;
   stroke-linejoin: round;
 }
+.autoto-face-eye {
+  fill: currentColor;
+  stroke: none;
+}
 .brand-confirm-title { font-weight: 700; font-size: 14px; color: var(--text); letter-spacing: .02em; }
 .brand-confirm-message { color: var(--text-soft); font-size: 13px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
 .brand-confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }

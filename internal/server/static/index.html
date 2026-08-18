@@ -22,8 +22,8 @@
       .boot-transition { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; background: #f6f7fb; opacity: 0; visibility: hidden; pointer-events: none; }
       html[data-ui-locale-pending="true"] .boot-transition { opacity: 1; visibility: visible; pointer-events: auto; }
     </style>
-    <link rel="stylesheet" href="/ui/styles.css?c=boot-git" />
-    <link rel="stylesheet" href="/ui/theme-runtime.css?c=boot-git" />
+    <link rel="stylesheet" href="/ui/styles.css?c=face-eyes" />
+    <link rel="stylesheet" href="/ui/theme-runtime.css?c=face-eyes" />
     <link rel="modulepreload" href="/ui/modules/error-boundary.mjs" />
     <link rel="modulepreload" href="/ui/modules/i18n.mjs" />
     <link rel="modulepreload" href="/ui/modules/app-main.mjs" />
@@ -57,7 +57,7 @@
       <button id="mobileSidebarBackdrop" class="mobile-backdrop hidden" type="button" aria-label="关闭菜单" data-i18n-aria-label="staticExtra.shell.closeMenu"></button>
       <aside class="global-rail" aria-label="全局导航" data-i18n-aria-label="shell.globalNavigation">
         <div class="global-rail-brand" aria-label="AUTOTO">
-          <span class="global-rail-brand-mark theme-icon-slot" data-theme-icon-slot="brand" aria-hidden="true"><svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="12.5"></circle><path d="M10.5 17.5c1.6 2 3.4 3 5.5 3s3.9-1 5.5-3"></path><path d="M11.5 12.5h.01M20.5 12.5h.01"></path></svg></span>
+          <span class="global-rail-brand-mark theme-icon-slot" data-theme-icon-slot="brand" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><circle cx="16" cy="16" r="12.5"></circle><path d="M10.5 17.5c1.6 2 3.4 3 5.5 3s3.9-1 5.5-3"></path><circle class="autoto-face-eye" cx="11.5" cy="12.5" r="1.25"></circle><circle class="autoto-face-eye" cx="20.5" cy="12.5" r="1.25"></circle></svg></span>
           <span class="global-rail-brand-text">AUTOTO</span>
         </div>
         <nav class="global-rail-nav" aria-label="主要功能" data-i18n-aria-label="shell.primaryFeatures">
@@ -104,7 +104,7 @@
         <div class="mobile-drawer-header" aria-label="移动端菜单标题栏" data-i18n-aria-label="staticExtra.shell.mobileDrawerHeader">
           <button id="mobileSidebarCloseBtn" class="mobile-icon-btn mobile-drawer-close-btn" type="button" title="关闭菜单" aria-label="关闭菜单" data-i18n-title="staticExtra.shell.closeMenu" data-i18n-aria-label="staticExtra.shell.closeMenu">×</button>
           <div class="mobile-drawer-brand-group">
-            <span class="mobile-drawer-brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="12.5"></circle><path d="M10.5 17.5c1.6 2 3.4 3 5.5 3s3.9-1 5.5-3"></path><path d="M11.5 12.5h.01M20.5 12.5h.01"></path></svg></span>
+            <span class="mobile-drawer-brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><circle cx="16" cy="16" r="12.5"></circle><path d="M10.5 17.5c1.6 2 3.4 3 5.5 3s3.9-1 5.5-3"></path><circle class="autoto-face-eye" cx="11.5" cy="12.5" r="1.25"></circle><circle class="autoto-face-eye" cx="20.5" cy="12.5" r="1.25"></circle></svg></span>
             <span class="mobile-drawer-brand">Autoto</span>
           </div>
           <div class="mobile-update-pill drawer-update-pill" aria-label="版本更新" data-i18n-aria-label="staticExtra.shell.versionUpdate"><span class="mobile-update-icon" aria-hidden="true">♙</span><span id="mobileDrawerVersionChip">更新: v0.1.0 → …</span></div>
@@ -278,7 +278,7 @@
           </div>
         </header>
         <section id="mobileConversationWelcome" class="mobile-conversation-welcome" role="status" aria-live="polite" aria-atomic="true">
-          <span class="mobile-conversation-brand-mark theme-icon-slot" data-theme-icon-slot="brand" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><circle cx="16" cy="16" r="12.5"></circle><path d="M10.5 17.5c1.6 2 3.4 3 5.5 3s3.9-1 5.5-3"></path><path d="M11.5 12.5h.01M20.5 12.5h.01"></path></svg></span>
+          <span class="mobile-conversation-brand-mark theme-icon-slot" data-theme-icon-slot="brand" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><circle cx="16" cy="16" r="12.5"></circle><path d="M10.5 17.5c1.6 2 3.4 3 5.5 3s3.9-1 5.5-3"></path><circle class="autoto-face-eye" cx="11.5" cy="12.5" r="1.25"></circle><circle class="autoto-face-eye" cx="20.5" cy="12.5" r="1.25"></circle></svg></span>
           <strong id="mobileWelcomeTitle" data-i18n="chat.mobileWelcomeTitle">开始新的对话</strong>
           <span id="mobileWelcomeDescription" data-i18n="chat.mobileWelcomeDescription">选择资料夹并告诉 Autoto 你想完成什么。</span>
         </section>
@@ -846,7 +846,7 @@
     <div id="brandConfirmBackdrop" class="brand-confirm-backdrop hidden" aria-hidden="true">
       <div class="brand-confirm" role="alertdialog" aria-modal="true" aria-labelledby="brandConfirmTitle" aria-describedby="brandConfirmMessage">
         <div class="brand-confirm-header">
-          <span class="brand-confirm-mark" aria-hidden="true"><svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="12.5"></circle><path d="M10.5 17.5c1.6 2 3.4 3 5.5 3s3.9-1 5.5-3"></path><path d="M11.5 12.5h.01M20.5 12.5h.01"></path></svg></span>
+          <span class="brand-confirm-mark" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><circle cx="16" cy="16" r="12.5"></circle><path d="M10.5 17.5c1.6 2 3.4 3 5.5 3s3.9-1 5.5-3"></path><circle class="autoto-face-eye" cx="11.5" cy="12.5" r="1.25"></circle><circle class="autoto-face-eye" cx="20.5" cy="12.5" r="1.25"></circle></svg></span>
           <span id="brandConfirmTitle" class="brand-confirm-title">Autoto</span>
         </div>
         <div id="brandConfirmMessage" class="brand-confirm-message"></div>
@@ -861,7 +861,7 @@
         <div class="account-session-card-content">
           <div class="account-session-brand">
             <span class="account-session-brand-identity">
-              <span class="account-session-brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><circle cx="16" cy="16" r="12.5"></circle><path d="M10.5 17.5c1.6 2 3.4 3 5.5 3s3.9-1 5.5-3"></path><path d="M11.5 12.5h.01M20.5 12.5h.01"></path></svg></span>
+              <span class="account-session-brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><circle cx="16" cy="16" r="12.5"></circle><path d="M10.5 17.5c1.6 2 3.4 3 5.5 3s3.9-1 5.5-3"></path><circle class="autoto-face-eye" cx="11.5" cy="12.5" r="1.25"></circle><circle class="autoto-face-eye" cx="20.5" cy="12.5" r="1.25"></circle></svg></span>
               <span class="account-session-brand-name">AUTOTO</span>
             </span>
             <span class="account-session-connection" data-i18n="accountSession.connectionState">Awaiting verification</span>

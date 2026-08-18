@@ -736,7 +736,7 @@ function renderLauncher(contextValue, stateValue, t, openSelect = "") {
   }));
   const launcherError = state.error ? `<p class="overview-launcher-error" role="alert">${escapeHtml(state.error)}</p>` : "";
   const hero = `<section class="overview-hero-root overview-launcher-hero">
-    <div class="overview-hero-copy"><div class="overview-hero-heading"><span class="overview-hero-mark" aria-hidden="true"><svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="12.5"></circle><path d="M10.5 17.5c1.6 2 3.4 3 5.5 3s3.9-1 5.5-3"></path><path d="M11.5 12.5h.01M20.5 12.5h.01"></path></svg></span><h1 class="overview-hero-title">${escapeHtml(launcherGreeting(context, t))}</h1></div></div>
+    <div class="overview-hero-copy"><div class="overview-hero-heading"><span class="overview-hero-mark" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><circle cx="16" cy="16" r="12.5"></circle><path d="M10.5 17.5c1.6 2 3.4 3 5.5 3s3.9-1 5.5-3"></path><circle class="autoto-face-eye" cx="11.5" cy="12.5" r="1.25"></circle><circle class="autoto-face-eye" cx="20.5" cy="12.5" r="1.25"></circle></svg></span><h1 class="overview-hero-title">${escapeHtml(launcherGreeting(context, t))}</h1></div></div>
   </section>`;
   // One rounded card holding the whole composer: the textarea on top and one
   // toolbar row along the card's bottom edge -- workspace controls on the left,

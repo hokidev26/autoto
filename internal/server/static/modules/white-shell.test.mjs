@@ -832,6 +832,23 @@ test("the spec board header control is a clipboard, not a ticked checklist", asy
   assert.doesNotMatch(html, />Dynamic Spec</);
 });
 
+test("the sidebar Autoto mark is a hollow smile, not a filled black disk", async () => {
+  const [html, styles] = await Promise.all([
+    readFile(indexURL, "utf8"),
+    readStylesSource(stylesURL),
+  ]);
+  assert.match(
+    html,
+    /class="global-rail-brand-mark theme-icon-slot"[^>]*data-theme-icon-slot="brand"[^>]*>[\s\S]*?<svg viewBox="0 0 32 32" fill="none">/,
+  );
+  assert.match(html, /class="autoto-face-eye" cx="11\.5" cy="12\.5" r="1\.25"/);
+  assert.match(html, /class="autoto-face-eye" cx="20\.5" cy="12\.5" r="1\.25"/);
+  assert.doesNotMatch(html, /M11\.5 12\.5h\.01M20\.5 12\.5h\.01/);
+  assert.match(styles, /body\.white-shell\.theme-light \.global-rail-brand-mark svg > circle:first-of-type/);
+  assert.match(styles, /\.autoto-face-eye\s*\{[^}]*fill:\s*currentColor/);
+  assert.match(styles, /body\.white-shell\.theme-light \.global-rail-brand-mark svg > path\s*,?\s*[\s\S]*?fill:\s*none/);
+});
+
 test("the git header control is a three-node branch, not overlapping curves", async () => {
   const html = await readFile(indexURL, "utf8");
   const at = html.indexOf('id="gitWorkflowBtn"');
@@ -2198,7 +2215,7 @@ test("mobile shell skips home and keeps the drawer, settings index, and model sh
   assert.match(html, /id="mobilePageTitle"[^>]*data-i18n="shell\.nav\.conversation">对话<\/div>/);
   assert.doesNotMatch(html, /id="mobilePageTitle"[^>]*data-i18n="shell\.nav\.home"/);
   assert.match(html, /class="[^"]*mobile-drawer-header/);
-  assert.match(html, /class="mobile-drawer-brand-mark"[^>]*>[\s\S]*?<svg viewBox="0 0 32 32">/);
+  assert.match(html, /class="mobile-drawer-brand-mark"[^>]*>[\s\S]*?<svg viewBox="0 0 32 32" fill="none">/);
   assert.match(html, /class="mobile-conversation-brand-mark theme-icon-slot"[^>]*data-theme-icon-slot="brand"[^>]*>[\s\S]*?<svg viewBox="0 0 32 32" fill="none">/);
   assert.match(html, /class="[^"]*mobile-drawer-footer/);
   assert.match(html, /class="settings-sidebar-header settings-modal-header"/);

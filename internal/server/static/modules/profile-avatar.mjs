@@ -50,7 +50,7 @@ export function profileAvatarHTML(identity = {}) {
 // The assistant's mark in the main transcript. Exported so the surfaces that
 // mirror that transcript head - the background-task pane - show the same
 // avatar instead of carrying their own copy of the artwork.
-export const assistantAvatarSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" style="width:14px;height:14px;display:block;"><circle cx="32" cy="32" r="25"/><path d="M21 35c3.2 4 6.8 6 11 6s7.8-2 11-6"/><path d="M23 25h.02M41 25h.02"/></svg>`;
+export const assistantAvatarSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" style="width:14px;height:14px;display:block;"><circle cx="32" cy="32" r="25"/><path d="M21 35c3.2 4 6.8 6 11 6s7.8-2 11-6"/><circle class="autoto-face-eye" cx="23" cy="25" r="2.4" fill="currentColor" stroke="none"/><circle class="autoto-face-eye" cx="41" cy="25" r="2.4" fill="currentColor" stroke="none"/></svg>`;
 
 export function normalizeAvatarDataUrl(value = "") {
   const source = String(value || "").trim();

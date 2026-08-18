@@ -15,6 +15,13 @@ body.white-shell.theme-light .chat-title-action svg {
   stroke-linecap: round;
   stroke-linejoin: round;
 }
+/* The face ring and smile stay unfilled. Eye dots are filled circles; a
+   blanket circle { fill: none } would hollow them out again. */
+body.white-shell.theme-light .global-rail-brand-mark svg > circle:first-of-type,
+body.white-shell.theme-light .global-rail-brand-mark svg > path {
+  fill: none;
+  stroke: currentColor;
+}
 
 body.white-shell.theme-light .global-rail {
   padding: 10px 8px 12px;

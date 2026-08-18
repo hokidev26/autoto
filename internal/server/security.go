@@ -951,6 +951,7 @@ func (s *Server) writeRemoteAccessLoginPage(w http.ResponseWriter, r *http.Reque
     body { position: relative; min-height: 100dvh; margin: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; overflow-x: hidden; padding: 28px 18px; background: radial-gradient(circle at 18%% 10%%, rgba(92,108,255,.13), transparent 34%%), radial-gradient(circle at 88%% 88%%, rgba(62,190,255,.07), transparent 28%%), #f4f6fb; color: var(--text); font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
     body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opacity: .55; background-image: linear-gradient(rgba(77,88,116,.035) 1px, transparent 1px), linear-gradient(90deg, rgba(77,88,116,.035) 1px, transparent 1px); background-size: 32px 32px; mask-image: linear-gradient(to bottom, black, transparent 88%%); }
     svg { display: block; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+    .autoto-face-eye { fill: currentColor; stroke: none; }
     .remote-access-card { position: relative; z-index: 1; width: min(100%%, 488px); overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius-xl); background: linear-gradient(150deg, rgba(255,255,255,.99), rgba(250,251,254,.99)); padding: 32px; box-shadow: 0 1px 2px rgba(49,61,96,.06), 0 10px 30px rgba(49,61,96,.08); }
     .remote-access-card::before { content: ""; position: absolute; width: 290px; height: 290px; top: -190px; right: -150px; border-radius: 999px; background: radial-gradient(circle, rgba(109,124,255,.18), transparent 68%%); pointer-events: none; }
     .card-content { position: relative; z-index: 1; }
@@ -1002,7 +1003,7 @@ func (s *Server) writeRemoteAccessLoginPage(w http.ResponseWriter, r *http.Reque
   <main class="remote-access-shell remote-access-card" aria-labelledby="remoteAccessTitle">
     <div class="card-content">
       <div class="brand-row">
-        <span class="brand-identity"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="12.5"></circle><path d="M10.5 17.5c1.6 2 3.4 3 5.5 3s3.9-1 5.5-3"></path><path d="M11.5 12.5h.01M20.5 12.5h.01"></path></svg></span><span class="brand-name">AUTOTO</span></span>
+        <span class="brand-identity"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><circle cx="16" cy="16" r="12.5"></circle><path d="M10.5 17.5c1.6 2 3.4 3 5.5 3s3.9-1 5.5-3"></path><circle class="autoto-face-eye" cx="11.5" cy="12.5" r="1.25"></circle><circle class="autoto-face-eye" cx="20.5" cy="12.5" r="1.25"></circle></svg></span><span class="brand-name">AUTOTO</span></span>
         <span class="connection-state">%s</span>
       </div>
       <header>

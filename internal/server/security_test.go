@@ -546,6 +546,7 @@ func TestRemoteAccessGateRendersLoginPageForRemoteIndex(t *testing.T) {
 		`aria-label="访问密码"`,
 		`<label class="password-label" for="remoteAccessPassword">访问密码</label>`,
 		`<circle cx="16" cy="16" r="12.5"></circle>`,
+		`class="autoto-face-eye"`,
 		`@keyframes connection-bounce`,
 		`animation: connection-bounce 1.15s`,
 		`gap: 5px`,

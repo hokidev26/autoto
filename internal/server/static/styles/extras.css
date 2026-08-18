@@ -4733,6 +4733,10 @@ body.account-session-locked #appearanceBackgroundLayer {
   stroke-linecap: round;
   stroke-linejoin: round;
 }
+.account-session-overlay .autoto-face-eye {
+  fill: currentColor;
+  stroke: none;
+}
 
 .account-session-card {
   position: relative;

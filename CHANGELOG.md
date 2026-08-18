@@ -28,6 +28,7 @@ All notable changes to Autoto are tracked here. The project is still an experime
 - On a phone, the Git sheet scrolls as one column so the commit box and timeline stay reachable under the diff.
 - Reload paints from the on-device UI cache immediately and revalidates in the background. The stylesheet is served as one file instead of sixteen `@import` round trips, and the boot overlay no longer waits on a long fade.
 - The conversation Git glyph is a three-node branch. The previous overlapping curves read as a knot at header size.
+- The sidebar Autoto mark is a hollow smile with filled eye dots. The circle had been filling black, and the old `h.01` eye strokes vanished once the face was unfilled.
 - Plan cards render in the transcript in place of the raw JSON blob, executed and cancelled plans stay visible after reopen, and the synthetic execute/replan prompts compact to short system notices.
 - Two-column navigation stops at 260px for the conversation list. Dragging further clamps instead of stretching an empty gutter; the two-column layout now starts at that same total rather than after a wider docked rail.
 - Folder-row `+` sits on the far right of the row on hover, so it no longer overlaps the folder name. Hovering anywhere on a project folder paints a pill and shows the chevron; clicking the row expands or collapses it instead of requiring the 16px folder icon.
