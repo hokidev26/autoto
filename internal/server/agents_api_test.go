@@ -57,6 +57,7 @@ func TestAgentCollectionsAndCreationRespectMembership(t *testing.T) {
 	defer store.Close()
 	app := New(config.Config{Auth: config.AuthConfig{RegistrationOpen: true}}, store, nil, nil)
 
+	registerIsolationAdmin(t, app)
 	ownerCookie := registerCollaborationTestUser(t, app, "owner")
 	owner, _, err := store.GetUserByHandle(ctx, "owner")
 	if err != nil {

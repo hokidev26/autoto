@@ -579,7 +579,7 @@ body.white-shell.theme-light .toolbar-lightning-btn[aria-busy="true"] {
 @media (min-width: 768px) {
   body.white-shell.theme-light [class~="composer-wrap"] {
     min-height: 0;
-    padding: 6px 10px 8px;
+    padding: 8px 10px;
   }
 
   body.white-shell.theme-light [class~="composer-card"] {
@@ -748,7 +748,7 @@ body.white-shell.theme-light .toolbar-lightning-btn[aria-busy="true"] {
     border: 1px solid var(--ws-border, #dfe3e9);
     border-radius: 10px;
     background: var(--ws-input, #eef1f5);
-    padding: 2px 2px 6px;
+    padding: 4px;
   }
 
   body.white-shell.theme-light textarea#messageText {
@@ -761,7 +761,7 @@ body.white-shell.theme-light .toolbar-lightning-btn[aria-busy="true"] {
     border-radius: 7px;
     background: transparent;
     box-shadow: none;
-    padding: 5.5px 12px 4px;
+    padding: 6px 12px;
     line-height: 1.4;
   }
 
@@ -2004,7 +2004,7 @@ body.white-shell.theme-light .composer-input-shell.dragging .message-input-frame
     border: 1px solid var(--ws-border, #dfe3e9);
     border-radius: 10px;
     background: var(--ws-input, #eef1f5);
-    padding: 2px 2px 6px;
+    padding: 4px;
   }
 
   body.white-shell.theme-light [class~="message-input-frame"]:focus-within {
@@ -2017,7 +2017,7 @@ body.white-shell.theme-light .composer-input-shell.dragging .message-input-frame
     border: 0;
     background: transparent;
     box-shadow: none;
-    padding: 6px 10px 4px;
+    padding: 6px 10px;
   }
 
   body.white-shell.theme-light [class~="pending-attachments"] {

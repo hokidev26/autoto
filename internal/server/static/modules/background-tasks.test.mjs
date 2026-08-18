@@ -976,10 +976,26 @@ test("subagent permission modes render translated labels, not raw enum values", 
   // The option's visible text must not be the enum value itself.
   const options = [...html.matchAll(/<option value="(readOnly|acceptEdits|bypassPermissions|default)"[^>]*>([^<]*)</g)];
   assert.equal(options.length, 4, "all four permission modes must be offered");
+  assert.deepEqual(options.map((match) => match[1]), ["readOnly", "default", "acceptEdits", "bypassPermissions"]);
   for (const [, value, label] of options) {
     assert.notEqual(label.trim(), value, `${value} must render a translated label`);
     assert.ok(label.trim().length > 0, `${value} must have a label`);
   }
+});
+
+test("subagent permission modes follow the composer remote allow-all cap", () => {
+  const controller = createBackgroundTasksController({
+    request: async () => ({}),
+    bypassPermissionsAllowed: () => false,
+  });
+  const html = controller.renderChildControlsHTMLForTest({ childAgentId: "child-cap" }, { permissionMode: "bypassPermissions" });
+
+  assert.match(html, /<option value="acceptEdits" selected>/);
+  assert.match(html, /<option value="bypassPermissions" disabled>/);
+  assert.doesNotMatch(html, /<option value="bypassPermissions" selected>/);
+  const allowAll = html.match(/<option value="bypassPermissions"[^>]*>([^<]*)</);
+  assert.ok(allowAll, "allow-all remains listed");
+  assert.match(allowAll[1], /遠端停用|远程禁用|Remote disabled/);
 });
 
 // A lifecycle event carries identifiers and state but no title; the title only
@@ -1293,6 +1309,32 @@ test("subagent user messages render the current profile avatar and display name"
   assert.match(escapedHTML, /data-user-profile-avatar>XY<\/span>/);
   assert.match(escapedHTML, /data-user-profile-name>er&lt;erer<\/span>/);
   assert.doesNotMatch(escapedHTML, /er<erer/);
+});
+
+test("subagent user messages show each sender when the viewer is an account", async () => {
+  const controller = createBackgroundTasksController({
+    request: async (path) => {
+      if (path.endsWith("/output?afterSequence=0")) return { chunks: [] };
+      if (path.includes("/messages")) {
+        return {
+          messages: [
+            { id: "m-ray", role: "user", contentText: "from ray", createdBy: "ray-id", author: { id: "ray-id", handle: "ray", displayName: "管理員雷", avatarInitials: "雷" } },
+            { id: "m-feng", role: "user", contentText: "from feng", createdBy: "feng-id", author: { id: "feng-id", handle: "feng", displayName: "協作者風", avatarInitials: "風" } },
+          ],
+        };
+      }
+      if (path.includes("/tool-calls")) return { toolCalls: [] };
+      return { id: "task-id", agentId: "agent-1", kind: "agent", status: "succeeded", childAgentId: "child-1", childRunId: "run-1", revision: 1 };
+    },
+    getProfile: () => ({ displayName: "管理員雷", avatarInitials: "雷" }),
+    getAccount: () => ({ id: "ray-id", handle: "ray" }),
+  });
+  controller.setAgent("agent-1");
+  await controller.selectTask("task-id");
+  const html = controller.renderChildConversationHTMLForTest({ childAgentId: "child-1", childRunId: "run-1" });
+  assert.match(html, /data-user-profile-name>管理員雷<\/span>/);
+  assert.match(html, />協作者風 \(@feng\)<\/span>/);
+  assert.doesNotMatch(html, /data-user-profile-name>協作者風/);
 });
 
 // The pane shares the main transcript's visibility rules. Raw protocol chatter

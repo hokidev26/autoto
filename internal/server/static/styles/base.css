@@ -145,7 +145,7 @@ body.ui-density-compact .recent-list { max-height: 132px; }
 body.ui-density-compact .chat-header { height: 54px; }
 body.ui-density-compact .messages { padding: 12px 18px 6px; }
 body.ui-density-compact .message { margin-bottom: 10px; }
-body.ui-density-compact .composer-wrap { padding: 10px 14px 12px; }
+body.ui-density-compact .composer-wrap { padding: 10px 14px; }
 body.ui-density-compact .composer-card { padding: 10px 12px; }
 body.ui-density-compact .terminal-header { height: 38px; }
 

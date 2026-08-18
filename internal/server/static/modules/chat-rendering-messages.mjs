@@ -81,6 +81,55 @@ export function normalizeMessageProfileIdentity(value = {}) {
   return { displayName, avatarInitials, avatarDataUrl };
 }
 
+export function messageCreatedBy(message = {}) {
+  return String(message?.createdBy || message?.created_by || "").trim();
+}
+
+// Own turns, optimistic echoes, and the single-seat UI (no account) keep using
+// the viewer's live profile. Everyone else's turn uses the author snapshot the
+// server attached from createdBy.
+export function usesLiveUserMessageIdentity(message = {}, account = null) {
+  if (message?.optimistic) return true;
+  const accountId = String(account?.id || "").trim();
+  if (!accountId) return true;
+  return messageCreatedBy(message) === accountId;
+}
+
+export function resolveUserMessageIdentity(message = {}, options = {}) {
+  const profile = options.profile;
+  const account = options.account;
+  const unknownAuthor = String(options.unknownAuthor || "").trim() || "User";
+  if (usesLiveUserMessageIdentity(message, account)) {
+    return {
+      ...normalizeMessageProfileIdentity(profile),
+      handle: String(account?.handle || "").trim(),
+      live: true,
+    };
+  }
+  const author = message?.author && typeof message.author === "object" && !Array.isArray(message.author)
+    ? message.author
+    : {};
+  const handle = String(author.handle || "").trim().slice(0, 64);
+  const displayName = String(author.displayName || "").trim().slice(0, 80) || handle || unknownAuthor;
+  const avatarInitials = String(author.avatarInitials || "").trim()
+    || handle.slice(0, 2)
+    || unknownAuthor.slice(0, 2)
+    || "U";
+  return {
+    ...normalizeMessageProfileIdentity({ displayName, avatarInitials }),
+    handle,
+    live: false,
+  };
+}
+
+export function formatUserMessageAuthorLabel(identity = {}, unknownAuthor = "User") {
+  const name = String(identity?.displayName || "").trim();
+  const handle = String(identity?.handle || "").trim();
+  if (identity?.live || !handle) return name || unknownAuthor;
+  if (!name || name.toLowerCase() === handle.toLowerCase()) return handle;
+  return `${name} (@${handle})`;
+}
+
 function boundedImageText(value, maximum = 240) {
   return String(value ?? "").trim().slice(0, maximum);
 }

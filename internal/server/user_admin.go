@@ -165,7 +165,15 @@ func (s *Server) createGuestAccount(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, response)
 }
 
+func (s *Server) createOperatorAccount(w http.ResponseWriter, r *http.Request) {
+	s.createWorkingAccount(w, r, "operator")
+}
+
 func (s *Server) createCollaboratorAccount(w http.ResponseWriter, r *http.Request) {
+	s.createWorkingAccount(w, r, "collaborator")
+}
+
+func (s *Server) createWorkingAccount(w http.ResponseWriter, r *http.Request, kind string) {
 	admin, ok := s.requireAdminUser(w, r)
 	if !ok {
 		return
@@ -176,7 +184,11 @@ func (s *Server) createCollaboratorAccount(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if !hasUsers {
-		writeError(w, http.StatusConflict, "create an administrator account before adding collaborators")
+		if kind == "operator" {
+			writeError(w, http.StatusConflict, "create an administrator account before adding operators")
+		} else {
+			writeError(w, http.StatusConflict, "create an administrator account before adding collaborators")
+		}
 		return
 	}
 	var request createCollaboratorRequest
@@ -197,7 +209,12 @@ func (s *Server) createCollaboratorAccount(w http.ResponseWriter, r *http.Reques
 	if err := s.requireAdminProjectAccess(w, r, admin, request.ProjectIDs); err != nil {
 		return
 	}
-	user, err := s.store.CreateCollaboratorUser(r.Context(), request.Handle, hash)
+	var user db.User
+	if kind == "operator" {
+		user, err = s.store.CreateOperatorUser(r.Context(), request.Handle, hash)
+	} else {
+		user, err = s.store.CreateCollaboratorUser(r.Context(), request.Handle, hash)
+	}
 	if err != nil {
 		s.writeRequestError(w, r, statusFromError(err), err)
 		return
@@ -279,6 +296,72 @@ func (s *Server) replaceGuestMemberships(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, account)
 }
 
+type updateUserRoleRequest struct {
+	Role string `json:"role"`
+}
+
+func (s *Server) updateUserRole(w http.ResponseWriter, r *http.Request) {
+	admin, ok := s.requireAdminUser(w, r)
+	if !ok {
+		return
+	}
+	user, ok := s.loadManagedUser(w, r)
+	if !ok {
+		return
+	}
+	var request updateUserRoleRequest
+	if err := decodeJSON(r, &request); err != nil {
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
+		return
+	}
+	role := strings.ToLower(strings.TrimSpace(request.Role))
+	if role != db.RoleAdmin && role != db.RoleOperator && role != db.RoleCollaborator {
+		writeError(w, http.StatusBadRequest, "role must be admin, user, or collaborator")
+		return
+	}
+	if userIsGuest(user) {
+		writeError(w, http.StatusBadRequest, "guest accounts cannot change role")
+		return
+	}
+	if user.ID == admin.ID && role != db.RoleAdmin {
+		count, err := s.store.CountUsersByRole(r.Context(), db.RoleAdmin)
+		if err != nil {
+			s.writeRequestError(w, r, http.StatusInternalServerError, err)
+			return
+		}
+		if count <= 1 {
+			writeError(w, http.StatusConflict, "cannot demote the last administrator")
+			return
+		}
+	}
+	if userIsAdmin(user) && role != db.RoleAdmin {
+		count, err := s.store.CountUsersByRole(r.Context(), db.RoleAdmin)
+		if err != nil {
+			s.writeRequestError(w, r, http.StatusInternalServerError, err)
+			return
+		}
+		if count <= 1 {
+			writeError(w, http.StatusConflict, "cannot demote the last administrator")
+			return
+		}
+	}
+	if err := s.store.UpdateUserRole(r.Context(), user.ID, role); err != nil {
+		s.writeRequestError(w, r, statusFromError(err), err)
+		return
+	}
+	updated, err := s.store.GetUser(r.Context(), user.ID)
+	if err != nil {
+		s.writeRequestError(w, r, statusFromError(err), err)
+		return
+	}
+	account, err := s.userAccountResponse(r, updated, true)
+	if err != nil {
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, account)
+}
+
 func (s *Server) deleteUserAccount(w http.ResponseWriter, r *http.Request) {
 	admin, ok := s.requireAdminUser(w, r)
 	if !ok {
@@ -293,7 +376,7 @@ func (s *Server) deleteUserAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if userIsAdmin(user) {
-		count, err := s.store.CountUsersByRole(r.Context(), "admin")
+		count, err := s.store.CountUsersByRole(r.Context(), db.RoleAdmin)
 		if err != nil {
 			s.writeRequestError(w, r, http.StatusInternalServerError, err)
 			return
@@ -336,8 +419,8 @@ func (s *Server) loadManagedMembershipUser(w http.ResponseWriter, r *http.Reques
 	if !ok {
 		return db.User{}, false
 	}
-	if !userIsGuest(user) && !userIsCollaborator(user) {
-		writeError(w, http.StatusBadRequest, "project memberships are only managed for collaborators and guests")
+	if !userIsGuest(user) && !userIsOperator(user) && !userIsCollaborator(user) {
+		writeError(w, http.StatusBadRequest, "project memberships are only managed for operators, collaborators and guests")
 		return db.User{}, false
 	}
 	return user, true

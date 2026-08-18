@@ -409,6 +409,160 @@ func TestRemotePolicyMutationRequiresHostLocalAuthority(t *testing.T) {
 	}
 }
 
+func TestRemoteSecurityMutationRevokesAccountSessions(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		mutate func(t *testing.T, app *Server, adminCookie *http.Cookie)
+	}{
+		{
+			name: "policy",
+			mutate: func(t *testing.T, app *Server, adminCookie *http.Cookie) {
+				t.Helper()
+				body := `{"allowFullAccess":true,"defaultMode":"full","allowRemoteNativePicker":false,"revision":1}`
+				request := newTestRequest(http.MethodPatch, "/api/security/remote-access/policy", strings.NewReader(body))
+				request.Host = "localhost:7788"
+				request.RemoteAddr = "127.0.0.1:4321"
+				request.Header.Set("Content-Type", "application/json")
+				request.Header.Set(localTokenHeader, app.localToken)
+				request.AddCookie(adminCookie)
+				response := httptest.NewRecorder()
+				app.Routes().ServeHTTP(response, request)
+				if response.Code != http.StatusOK {
+					t.Fatalf("policy mutation returned %d: %s", response.Code, response.Body.String())
+				}
+			},
+		},
+		{
+			name: "password",
+			mutate: func(t *testing.T, app *Server, adminCookie *http.Cookie) {
+				t.Helper()
+				request := newTestRequest(http.MethodPut, "/api/security/remote-access/password", strings.NewReader(`{"strategy":"custom","password":"New-Remote-Password-2!"}`))
+				request.Host = "localhost:7788"
+				request.RemoteAddr = "127.0.0.1:4321"
+				request.Header.Set("Content-Type", "application/json")
+				request.Header.Set(localTokenHeader, app.localToken)
+				request.AddCookie(adminCookie)
+				response := httptest.NewRecorder()
+				app.Routes().ServeHTTP(response, request)
+				if response.Code != http.StatusOK {
+					t.Fatalf("password rotation returned %d: %s", response.Code, response.Body.String())
+				}
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			store, err := db.Open(ctx, filepath.Join(t.TempDir(), "remote-account-"+tc.name+".db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer store.Close()
+			hash, err := config.HashAccessPassword("Correct-Horse-1!")
+			if err != nil {
+				t.Fatal(err)
+			}
+			cfg := config.Config{
+				Auth: config.AuthConfig{RegistrationOpen: true},
+				Security: config.SecurityConfig{
+					AccessPasswordHash:      hash,
+					AllowRemoteFullAccess:   false,
+					DefaultRemoteAccessMode: remoteAccessModeRestricted,
+					CredentialRevision:      1,
+				},
+			}
+			path := filepath.Join(t.TempDir(), "config.json")
+			if err := config.Save(path, cfg); err != nil {
+				t.Fatal(err)
+			}
+			app := New(cfg, store, nil, nil)
+			app.SetConfigPath(path)
+			routes := app.Routes()
+
+			adminCookie := registerCollaborationTestUser(t, app, "host")
+			passwordHash, err := hashUserPassword("correct horse battery staple")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := store.CreateCollaboratorUser(ctx, "teammate", passwordHash); err != nil {
+				t.Fatal(err)
+			}
+
+			login := httptest.NewRecorder()
+			loginReq := newTestRequest(http.MethodPost, "/api/auth/login", strings.NewReader(`{"handle":"teammate","password":"correct horse battery staple"}`))
+			loginReq.Host = "remote.example.test"
+			markRemoteHTTPS(loginReq)
+			loginReq.Header.Set("Content-Type", "application/json")
+			routes.ServeHTTP(login, loginReq)
+			if login.Code != http.StatusOK {
+				t.Fatalf("collaborator login returned %d: %s", login.Code, login.Body.String())
+			}
+			var collaboratorCookie *http.Cookie
+			for _, cookie := range login.Result().Cookies() {
+				if cookie.Name == authSessionCookieName {
+					collaboratorCookie = cookie
+				}
+			}
+			if collaboratorCookie == nil {
+				t.Fatal("collaborator login did not set an account session cookie")
+			}
+
+			before := httptest.NewRecorder()
+			beforeReq := newTestRequest(http.MethodGet, "/api/auth/me", nil)
+			beforeReq.Host = "remote.example.test"
+			markRemoteHTTPS(beforeReq)
+			beforeReq.AddCookie(collaboratorCookie)
+			routes.ServeHTTP(before, beforeReq)
+			if before.Code != http.StatusOK {
+				t.Fatalf("collaborator should be signed in before the mutation, got %d: %s", before.Code, before.Body.String())
+			}
+
+			wsReq := newTestRequest(http.MethodGet, "/ws/agents/x", nil)
+			wsReq.Host = "remote.example.test"
+			markRemoteHTTPS(wsReq)
+			wsReq.AddCookie(collaboratorCookie)
+			wsCtx, release, ok := app.authSessionWebSocketContext(context.Background(), wsReq)
+			if !ok {
+				t.Fatal("collaborator websocket should bind to the account session")
+			}
+			defer release()
+
+			tc.mutate(t, app, adminCookie)
+
+			if wsCtx.Err() == nil {
+				t.Fatal("policy or password change must cancel collaborator websockets")
+			}
+
+			stale := httptest.NewRecorder()
+			staleReq := newTestRequest(http.MethodGet, "/api/auth/me", nil)
+			staleReq.Host = "remote.example.test"
+			markRemoteHTTPS(staleReq)
+			staleReq.AddCookie(collaboratorCookie)
+			routes.ServeHTTP(stale, staleReq)
+			if stale.Code != http.StatusUnauthorized {
+				t.Fatalf("collaborator account session must be revoked, got %d: %s", stale.Code, stale.Body.String())
+			}
+
+			protected := httptest.NewRecorder()
+			protectedReq := newTestRequest(http.MethodGet, "/api/schedules", nil)
+			protectedReq.Host = "remote.example.test"
+			markRemoteHTTPS(protectedReq)
+			protectedReq.AddCookie(collaboratorCookie)
+			routes.ServeHTTP(protected, protectedReq)
+			if protected.Code != http.StatusUnauthorized {
+				t.Fatalf("revoked collaborator must not keep remote API access, got %d: %s", protected.Code, protected.Body.String())
+			}
+
+			kept := httptest.NewRecorder()
+			keptReq := newTestRequest(http.MethodGet, "/api/auth/me", nil)
+			keptReq.AddCookie(adminCookie)
+			routes.ServeHTTP(kept, keptReq)
+			if kept.Code != http.StatusOK {
+				t.Fatalf("localhost saver session must stay signed in, got %d: %s", kept.Code, kept.Body.String())
+			}
+		})
+	}
+}
+
 func TestSensitiveGuardAllowsOnlyLocalOrFullRemoteAuthority(t *testing.T) {
 	app := remoteAccessTestServer(t)
 	restrictedCookies := loginRemoteAccess(t, app, remoteAccessModeRestricted)

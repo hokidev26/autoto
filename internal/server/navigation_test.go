@@ -277,6 +277,7 @@ func TestNavigationRequiresMembershipWhenUsersExist(t *testing.T) {
 	}
 	defer store.Close()
 	app := New(config.Config{Auth: config.AuthConfig{RegistrationOpen: true}}, store, nil, nil)
+	registerIsolationAdmin(t, app)
 	firstCookie := registerCollaborationTestUser(t, app, "navigation-first")
 	registerCollaborationTestUser(t, app, "navigation-second")
 	first, _, err := store.GetUserByHandle(ctx, "navigation-first")

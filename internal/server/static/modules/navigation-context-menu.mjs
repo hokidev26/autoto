@@ -47,6 +47,7 @@ export function createNavigationContextMenu({
   }
 
   function openNavigationContextMenu(kind, id, event, trigger = null) {
+    if (kind === "project" && String(state.account?.role || "") === "collaborator") return false;
     const record = navigationMenuRecord(kind, id);
     const menu = $("navigationContextMenu");
     if (!record || !menu) return false;

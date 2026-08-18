@@ -13,7 +13,8 @@ import (
 )
 
 // WailsDialogHost shows OS-native dialogs through Wails.
-// Methods are safe to call from HTTP handlers (they hop onto the UI thread).
+// Methods are safe to call from HTTP handlers because Wails dialog methods
+// marshal their own work onto the UI thread.
 type WailsDialogHost struct {
 	app    *application.App
 	window *application.WebviewWindow
@@ -62,24 +63,24 @@ func (h *WailsDialogHost) Confirm(ctx context.Context, message, title string) (b
 			done <- result{accepted: accepted, err: err}
 		})
 	}
-	application.InvokeSync(func() {
-		dialog := h.app.Dialog.Question().
-			SetTitle(title).
-			SetMessage(message)
-		if window := h.mainWindow(); window != nil {
-			dialog.AttachToWindow(window)
-		}
-		// Windows MessageBox Question returns "Yes"/"No". Custom labels only
-		// work on macOS/Linux, so use the portable pair.
-		yes := dialog.AddButton("Yes")
-		yes.OnClick(func() { finish(true, nil) })
-		dialog.SetDefaultButton(yes)
-		no := dialog.AddButton("No")
-		no.OnClick(func() { finish(false, nil) })
-		dialog.SetCancelButton(no)
-		dialog.Show()
-		// Show may return before callbacks on sheet/async platforms; wait below.
-	})
+	dialog := h.app.Dialog.Question().
+		SetTitle(title).
+		SetMessage(message)
+	if window := h.mainWindow(); window != nil {
+		dialog.AttachToWindow(window)
+	}
+	// Windows MessageBox Question returns "Yes"/"No". Custom labels only
+	// work on macOS/Linux, so use the portable pair.
+	yes := dialog.AddButton("Yes")
+	yes.OnClick(func() { finish(true, nil) })
+	dialog.SetDefaultButton(yes)
+	no := dialog.AddButton("No")
+	no.OnClick(func() { finish(false, nil) })
+	dialog.SetCancelButton(no)
+	// Show marshals to the UI thread itself. Wrapping it in application.InvokeSync
+	// deadlocks because Wails would synchronously invoke the UI thread twice.
+	dialog.Show()
+	// Show may return before callbacks on sheet/async platforms; wait below.
 	select {
 	case <-ctx.Done():
 		return false, ctx.Err()
@@ -104,19 +105,17 @@ func (h *WailsDialogHost) Alert(ctx context.Context, message, title string) erro
 	finish := func(err error) {
 		once.Do(func() { done <- err })
 	}
-	application.InvokeSync(func() {
-		dialog := h.app.Dialog.Info().
-			SetTitle(title).
-			SetMessage(message)
-		if window := h.mainWindow(); window != nil {
-			dialog.AttachToWindow(window)
-		}
-		// Windows Info dialog maps to "Ok".
-		ok := dialog.AddButton("Ok")
-		ok.OnClick(func() { finish(nil) })
-		dialog.SetDefaultButton(ok)
-		dialog.Show()
-	})
+	dialog := h.app.Dialog.Info().
+		SetTitle(title).
+		SetMessage(message)
+	if window := h.mainWindow(); window != nil {
+		dialog.AttachToWindow(window)
+	}
+	// Windows Info dialog maps to "Ok".
+	ok := dialog.AddButton("Ok")
+	ok.OnClick(func() { finish(nil) })
+	dialog.SetDefaultButton(ok)
+	dialog.Show()
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -142,35 +141,36 @@ func (h *WailsDialogHost) PickDirectory(ctx context.Context, title, defaultPath 
 		err      error
 	}
 	done := make(chan result, 1)
-	application.InvokeSync(func() {
-		dialog := h.app.Dialog.OpenFile().
-			SetTitle(title).
-			CanChooseFiles(false).
-			CanChooseDirectories(true).
-			CanCreateDirectories(true)
-		if window := h.mainWindow(); window != nil {
-			dialog.AttachToWindow(window)
-		}
-		if dir := strings.TrimSpace(defaultPath); dir != "" {
-			dialog.SetDirectory(dir)
-		}
-		path, err := dialog.PromptForSingleSelection()
-		if err != nil {
-			msg := strings.ToLower(err.Error())
-			if path == "" || strings.Contains(msg, "cancel") || strings.Contains(msg, "abort") {
-				done <- result{canceled: true}
-				return
-			}
+	dialog := h.app.Dialog.OpenFile().
+		SetTitle(title).
+		CanChooseFiles(false).
+		CanChooseDirectories(true).
+		CanCreateDirectories(true)
+	if window := h.mainWindow(); window != nil {
+		dialog.AttachToWindow(window)
+	}
+	if dir := strings.TrimSpace(defaultPath); dir != "" {
+		dialog.SetDirectory(dir)
+	}
+	// PromptForSingleSelection marshals to the UI thread internally. An outer
+	// application.InvokeSync causes a nested synchronous invoke and freezes the
+	// WebView before the native picker can appear.
+	path, err := dialog.PromptForSingleSelection()
+	if err != nil {
+		msg := strings.ToLower(err.Error())
+		if path == "" || strings.Contains(msg, "cancel") || strings.Contains(msg, "abort") {
+			done <- result{canceled: true}
+		} else {
 			done <- result{err: err}
-			return
 		}
+	} else {
 		path = strings.TrimSpace(path)
 		if path == "" {
 			done <- result{canceled: true}
-			return
+		} else {
+			done <- result{path: path}
 		}
-		done <- result{path: path}
-	})
+	}
 	select {
 	case <-ctx.Done():
 		return "", true, ctx.Err()
@@ -196,42 +196,40 @@ func (h *WailsDialogHost) PickFile(ctx context.Context, title, defaultPath strin
 		err      error
 	}
 	done := make(chan result, 1)
-	application.InvokeSync(func() {
-		dialog := h.app.Dialog.OpenFile().
-			SetTitle(title).
-			CanChooseFiles(true).
-			CanChooseDirectories(false)
-		if window := h.mainWindow(); window != nil {
-			dialog.AttachToWindow(window)
+	dialog := h.app.Dialog.OpenFile().
+		SetTitle(title).
+		CanChooseFiles(true).
+		CanChooseDirectories(false)
+	if window := h.mainWindow(); window != nil {
+		dialog.AttachToWindow(window)
+	}
+	if dir := strings.TrimSpace(defaultPath); dir != "" {
+		dialog.SetDirectory(dir)
+	}
+	for _, filter := range filters {
+		name := strings.TrimSpace(filter.Name)
+		pattern := strings.TrimSpace(filter.Pattern)
+		if name == "" || pattern == "" {
+			continue
 		}
-		if dir := strings.TrimSpace(defaultPath); dir != "" {
-			dialog.SetDirectory(dir)
-		}
-		for _, filter := range filters {
-			name := strings.TrimSpace(filter.Name)
-			pattern := strings.TrimSpace(filter.Pattern)
-			if name == "" || pattern == "" {
-				continue
-			}
-			dialog.AddFilter(name, pattern)
-		}
-		path, err := dialog.PromptForSingleSelection()
-		if err != nil {
-			msg := strings.ToLower(err.Error())
-			if path == "" || strings.Contains(msg, "cancel") || strings.Contains(msg, "abort") {
-				done <- result{canceled: true}
-				return
-			}
+		dialog.AddFilter(name, pattern)
+	}
+	path, err := dialog.PromptForSingleSelection()
+	if err != nil {
+		msg := strings.ToLower(err.Error())
+		if path == "" || strings.Contains(msg, "cancel") || strings.Contains(msg, "abort") {
+			done <- result{canceled: true}
+		} else {
 			done <- result{err: err}
-			return
 		}
+	} else {
 		path = strings.TrimSpace(path)
 		if path == "" {
 			done <- result{canceled: true}
-			return
+		} else {
+			done <- result{path: path}
 		}
-		done <- result{path: path}
-	})
+	}
 	select {
 	case <-ctx.Done():
 		return "", true, ctx.Err()

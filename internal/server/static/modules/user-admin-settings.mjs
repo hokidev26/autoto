@@ -1,13 +1,14 @@
 import { $, escapeAttr, escapeHtml, setButtonBusy } from "./dom.mjs";
 import { t } from "./i18n.mjs";
 import { api } from "./runtime.mjs";
-import { accountIsAdmin, accountIsGuest } from "./account-session.mjs";
+import { accountIsAdmin, accountIsCollaborator, accountIsGuest, accountIsOperator } from "./account-session.mjs";
 
 export function createUserAdminSettingsController({
   state,
   request = api,
   copyText,
   showError,
+  showToast,
   confirmAction,
   onChange,
   onCreateAdministrator,
@@ -22,7 +23,8 @@ export function createUserAdminSettingsController({
   function roleLabel(role) {
     if (role === "admin") return t("users.roleAdmin");
     if (role === "guest") return t("users.roleGuest");
-    return t("users.roleUser");
+    if (role === "collaborator") return t("users.roleCollaborator");
+    return t("users.roleOperator");
   }
 
   function roleBadgeClass(role) {
@@ -110,7 +112,22 @@ export function createUserAdminSettingsController({
     if (self) return t("users.selfHint");
     if (accountIsGuest(account)) return t("users.guestCardHint");
     if (accountIsAdmin(account)) return t("users.adminCardHint");
-    return t("users.collaboratorHint");
+    if (accountIsCollaborator(account)) return t("users.collaboratorHint");
+    return t("users.operatorHint");
+  }
+
+  function roleSelect(account) {
+    if (accountIsGuest(account) || account.id === state.account?.id) return "";
+    const role = String(account.role || "user");
+    return `
+      <label class="settings-form-field">${escapeHtml(t("users.changeRole"))}
+        <select class="settings-field" data-user-role>
+          <option value="admin"${role === "admin" ? " selected" : ""}>${escapeHtml(t("users.roleAdmin"))}</option>
+          <option value="user"${role === "user" ? " selected" : ""}>${escapeHtml(t("users.roleOperator"))}</option>
+          <option value="collaborator"${role === "collaborator" ? " selected" : ""}>${escapeHtml(t("users.roleCollaborator"))}</option>
+        </select>
+      </label>
+    `;
   }
 
   function renderAccount(account) {
@@ -119,7 +136,7 @@ export function createUserAdminSettingsController({
     const handle = account.handle || account.username || account.id;
     const self = account.id === state.account?.id;
     const guest = accountIsGuest(account);
-    const membershipsEnabled = guest || String(account.role || "") === "user";
+    const membershipsEnabled = guest || accountIsOperator(account) || accountIsCollaborator(account);
     const canDelete = accountIsAdmin(state.account) && !self;
     const keyCount = account.keyCount || keys.length || 0;
     const row = `
@@ -146,24 +163,43 @@ export function createUserAdminSettingsController({
         </div>
       </div>
     `;
+    const roleControls = roleSelect(account);
     const body = membershipsEnabled ? `
       <div class="user-admin-account-body">
         <div class="user-admin-memberships">
           ${projectPicker(memberships, guest ? t("users.projects") : t("users.collaboratorProjects"))}
           ${guest ? `<div class="user-admin-section-label">${escapeHtml(t("users.keys"))}</div>${renderKeys(keys)}` : ""}
+          ${roleControls}
         </div>
         <div class="settings-action-row settings-card-footer">
           <button class="settings-action-btn primary" type="button" data-save-memberships>${escapeHtml(t("users.saveMemberships"))}</button>
+          ${roleControls ? `<button class="settings-action-btn subtle" type="button" data-save-role>${escapeHtml(t("users.saveRole"))}</button>` : ""}
           ${guest ? `<button class="settings-action-btn subtle" type="button" data-issue-key>${escapeHtml(t("users.issueAnotherKey"))}</button>` : ""}
           ${canDelete ? `<button class="settings-action-btn danger" type="button" data-delete-user>${escapeHtml(t("users.deleteUser"))}</button>` : ""}
         </div>
       </div>
+    ` : roleControls ? `
+      <div class="user-admin-account-body">
+        <div class="user-admin-memberships">${roleControls}</div>
+        <div class="settings-action-row settings-card-footer">
+          <button class="settings-action-btn subtle" type="button" data-save-role>${escapeHtml(t("users.saveRole"))}</button>
+          ${canDelete ? `<button class="settings-action-btn danger" type="button" data-delete-user>${escapeHtml(t("users.deleteUser"))}</button>` : ""}
+        </div>
+      </div>
     ` : "";
-    if (!membershipsEnabled) {
+    if (!membershipsEnabled && !roleControls) {
       return `
         <article class="user-admin-account${self ? " is-self" : ""}" data-user-id="${escapeAttr(account.id)}" data-role="${escapeAttr(account.role || "")}">
           ${row}
         </article>
+      `;
+    }
+    if (!membershipsEnabled) {
+      return `
+        <details class="user-admin-account${self ? " is-self" : ""}" data-user-id="${escapeAttr(account.id)}" data-role="${escapeAttr(account.role || "")}"${openAccountIds.has(account.id) ? " open" : ""}>
+          <summary class="user-admin-account-summary">${row}</summary>
+          ${body}
+        </details>
       `;
     }
     return `
@@ -189,13 +225,32 @@ export function createUserAdminSettingsController({
   }
 
   function renderCreatePanel() {
+    const operatorOpen = createPanel === "operator";
     const collaboratorOpen = createPanel === "collaborator";
     const guestOpen = createPanel === "guest";
+    const titleKey = guestOpen ? "users.createGuest" : operatorOpen ? "users.createOperator" : "users.createCollaborator";
     return `
       <section class="settings-provider-section settings-page-section settings-card user-admin-create-panel"${createPanel ? "" : " hidden"}>
         <div class="settings-card-header user-admin-create-head">
-          <div class="settings-card-title" data-create-title>${escapeHtml(t(guestOpen ? "users.createGuest" : "users.createCollaborator"))}</div>
+          <div class="settings-card-title" data-create-title>${escapeHtml(t(titleKey))}</div>
           <button class="settings-action-btn subtle" type="button" data-close-create>${escapeHtml(t("common.cancel"))}</button>
+        </div>
+        <div data-create-form="operator"${operatorOpen ? "" : " hidden"}>
+          <p class="settings-card-description" data-settings-help-copy>${escapeHtml(t("users.createOperatorHint"))}</p>
+          <form id="createOperatorForm" class="settings-card-content user-admin-create-form">
+            <div class="settings-provider-form-grid settings-form-grid">
+              <label class="settings-form-field">${escapeHtml(t("users.operatorHandle"))}
+                <input id="operatorHandleInput" class="settings-field" required autocomplete="off" placeholder="${escapeAttr(t("users.handlePlaceholder"))}" />
+              </label>
+              <label class="settings-form-field">${escapeHtml(t("users.operatorPassword"))}
+                <input id="operatorPasswordInput" class="settings-field" type="password" required minlength="8" autocomplete="new-password" placeholder="${escapeAttr(t("users.collaboratorPasswordPlaceholder"))}" />
+              </label>
+            </div>
+            ${projectPicker([], t("users.operatorProjects"))}
+            <div class="settings-action-row settings-card-footer">
+              <button class="settings-action-btn primary" type="submit">${escapeHtml(t("users.createOperator"))}</button>
+            </div>
+          </form>
         </div>
         <div data-create-form="collaborator"${collaboratorOpen ? "" : " hidden"}>
           <p class="settings-card-description" data-settings-help-copy>${escapeHtml(t("users.createCollaboratorHint"))}</p>
@@ -281,6 +336,7 @@ export function createUserAdminSettingsController({
           title: t("users.hasUsersTitle"),
           description: t("users.description"),
           action: `
+            <button id="createOperatorBtn" class="settings-action-btn ${createPanel === "operator" ? "primary" : "subtle"}" type="button" aria-pressed="${createPanel === "operator" ? "true" : "false"}">${escapeHtml(t("users.createOperator"))}</button>
             <button id="createCollaboratorBtn" class="settings-action-btn ${createPanel === "collaborator" ? "primary" : "subtle"}" type="button" aria-pressed="${createPanel === "collaborator" ? "true" : "false"}">${escapeHtml(t("users.createCollaborator"))}</button>
             <button id="createGuestBtn" class="settings-action-btn ${createPanel === "guest" ? "primary" : "subtle"}" type="button" aria-pressed="${createPanel === "guest" ? "true" : "false"}">${escapeHtml(t("users.createGuest"))}</button>
             <button id="refreshUserAccountsBtn" class="settings-action-btn subtle" type="button">${escapeHtml(t("users.refresh"))}</button>
@@ -288,7 +344,8 @@ export function createUserAdminSettingsController({
         })}
         <div class="settings-stat-grid user-admin-stats">
           <div class="settings-stat-card"><strong>${countByRole(accounts, "admin")}</strong><span>${escapeHtml(t("users.statsAdmin"))}</span></div>
-          <div class="settings-stat-card"><strong>${countByRole(accounts, "user")}</strong><span>${escapeHtml(t("users.statsUser"))}</span></div>
+          <div class="settings-stat-card"><strong>${countByRole(accounts, "user")}</strong><span>${escapeHtml(t("users.statsOperator"))}</span></div>
+          <div class="settings-stat-card"><strong>${countByRole(accounts, "collaborator")}</strong><span>${escapeHtml(t("users.statsCollaborator"))}</span></div>
           <div class="settings-stat-card"><strong>${countByRole(accounts, "guest")}</strong><span>${escapeHtml(t("users.statsGuest"))}</span></div>
         </div>
         ${renderIssuedKey()}
@@ -321,6 +378,29 @@ export function createUserAdminSettingsController({
 
   async function refresh() {
     await reload();
+  }
+
+  async function createOperator(event) {
+    event.preventDefault();
+    const handle = $("operatorHandleInput")?.value?.trim() || "";
+    const password = $("operatorPasswordInput")?.value || "";
+    const projectIds = selectedProjectIds($("createOperatorForm"));
+    const button = event.submitter || event.currentTarget.querySelector("button[type=submit]");
+    setButtonBusy(button, true, t("common.loading"));
+    try {
+      await request("/api/users/operators", {
+        method: "POST",
+        body: JSON.stringify({ handle, password, projectIds }),
+      });
+      $("operatorHandleInput").value = "";
+      $("operatorPasswordInput").value = "";
+      createPanel = "";
+      await reload();
+    } catch (error) {
+      showError?.(error);
+    } finally {
+      setButtonBusy(button, false);
+    }
   }
 
   async function createCollaborator(event) {
@@ -371,12 +451,39 @@ export function createUserAdminSettingsController({
     }
   }
 
+  async function saveRole(userId, root) {
+    const button = root.querySelector("[data-save-role]");
+    setButtonBusy(button, true, t("common.loading"));
+    try {
+      const role = root.querySelector("[data-user-role]")?.value || "";
+      await request(`/api/users/${encodeURIComponent(userId)}/role`, {
+        method: "PATCH",
+        body: JSON.stringify({ role }),
+      });
+      await reload();
+      showToast?.(t("users.roleSaved"), "success", { force: true });
+    } catch (error) {
+      showError?.(error);
+    } finally {
+      setButtonBusy(button, false);
+    }
+  }
+
   async function saveMemberships(userId, root) {
-    await request(`/api/users/${encodeURIComponent(userId)}/memberships`, {
-      method: "PUT",
-      body: JSON.stringify({ projectIds: selectedProjectIds(root) }),
-    });
-    await reload();
+    const button = root.querySelector("[data-save-memberships]");
+    setButtonBusy(button, true, t("common.loading"));
+    try {
+      await request(`/api/users/${encodeURIComponent(userId)}/memberships`, {
+        method: "PUT",
+        body: JSON.stringify({ projectIds: selectedProjectIds(root) }),
+      });
+      await reload();
+      showToast?.(t("users.membershipsSaved"), "success", { force: true });
+    } catch (error) {
+      showError?.(error);
+    } finally {
+      setButtonBusy(button, false);
+    }
   }
 
   async function issueKey(userId) {
@@ -502,9 +609,11 @@ export function createUserAdminSettingsController({
     const { signal } = pickerEvents;
     $("refreshUserAccountsBtn")?.addEventListener("click", () => refresh().catch(showError), { signal });
     $("createAdministratorBtn")?.addEventListener("click", () => onCreateAdministrator?.(), { signal });
+    $("createOperatorBtn")?.addEventListener("click", () => setCreatePanel("operator"), { signal });
     $("createCollaboratorBtn")?.addEventListener("click", () => setCreatePanel("collaborator"), { signal });
     $("createGuestBtn")?.addEventListener("click", () => setCreatePanel("guest"), { signal });
     document.querySelector("[data-close-create]")?.addEventListener("click", () => setCreatePanel(""), { signal });
+    $("createOperatorForm")?.addEventListener("submit", (event) => createOperator(event).catch(showError), { signal });
     $("createCollaboratorForm")?.addEventListener("submit", (event) => createCollaborator(event).catch(showError), { signal });
     $("createGuestForm")?.addEventListener("submit", (event) => createGuest(event).catch(showError), { signal });
     $("copyIssuedAccessKeyBtn")?.addEventListener("click", () => issuedKey && copyText?.(issuedKey), { signal });
@@ -518,6 +627,7 @@ export function createUserAdminSettingsController({
     });
     if (shouldFocusCreate) {
       shouldFocusCreate = false;
+      if (createPanel === "operator") $("operatorHandleInput")?.focus();
       if (createPanel === "collaborator") $("collaboratorHandleInput")?.focus();
       if (createPanel === "guest") $("guestHandleInput")?.focus();
     }
@@ -525,6 +635,7 @@ export function createUserAdminSettingsController({
       const userId = root.dataset.userId;
       const account = (state.userAccounts || []).find((item) => item.id === userId);
       root.querySelector("[data-save-memberships]")?.addEventListener("click", () => saveMemberships(userId, root).catch(showError), { signal });
+      root.querySelector("[data-save-role]")?.addEventListener("click", () => saveRole(userId, root).catch(showError), { signal });
       root.querySelector("[data-issue-key]")?.addEventListener("click", () => issueKey(userId).catch(showError), { signal });
       root.querySelector("[data-delete-user]")?.addEventListener("click", () => deleteUser(account).catch(showError), { signal });
       root.querySelectorAll("[data-revoke-key]").forEach((button) => {

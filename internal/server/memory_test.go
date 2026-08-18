@@ -262,6 +262,7 @@ func TestMemoryIDORAndRestrictedRemoteMutations(t *testing.T) {
 		},
 	}, store, nil, nil)
 
+	registerIsolationAdmin(t, app)
 	ownerCookie := registerCollaborationTestUser(t, app, "mem-owner")
 	outsiderCookie := registerCollaborationTestUser(t, app, "mem-outsider")
 	owner, _, err := store.GetUserByHandle(ctx, "mem-owner")

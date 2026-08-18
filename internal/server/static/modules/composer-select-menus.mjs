@@ -63,6 +63,7 @@ export function createComposerSelectMenus({
   getPlanReflection = () => true,
   setPlanReflection = () => {},
   getAgentId = () => "",
+  canEditWorkflowPreferences = () => true,
   mobileViewport = () => false,
 } = {}) {
   function bindComposerSelectMenus() {
@@ -158,6 +159,7 @@ export function createComposerSelectMenus({
     };
 
     const setDangerReflectionLevel = async (selector, nextLevel) => {
+      if (!canEditWorkflowPreferences?.()) return;
       if (!dangerReflectionLevels.includes(nextLevel) || nextLevel === dangerReflectionLevel()) return;
       let previousPreferences = workflowPreferences;
       selector.setAttribute("aria-busy", "true");
@@ -167,7 +169,7 @@ export function createComposerSelectMenus({
         // known first — if they can't be loaded, refuse rather than risk
         // resending the safety-critical confirmation flags with wrong defaults.
         const current = workflowPreferences || (await loadWorkflowPreferences());
-        if (!current || typeof requestAPI !== "function") throw new Error("Workflow preferences are unavailable");
+        if (!current || typeof requestAPI !== "function") throw new Error(translate("chat.workflowPreferencesUnavailable"));
         previousPreferences ||= current;
         const payload = {
           requireConfirmationForExec: Boolean(current.requireConfirmationForExec),
@@ -182,7 +184,8 @@ export function createComposerSelectMenus({
         showError?.(error);
       } finally {
         selector.removeAttribute("aria-busy");
-        selector.querySelectorAll(".composer-permission-danger-reflection-level").forEach((button) => { button.disabled = false; });
+        const editable = canEditWorkflowPreferences?.() !== false;
+        selector.querySelectorAll(".composer-permission-danger-reflection-level").forEach((button) => { button.disabled = !editable; });
         syncDangerReflectionLevelNodes();
       }
     };
@@ -190,7 +193,8 @@ export function createComposerSelectMenus({
     const createDangerReflectionRow = () => {
       const row = document.createElement("div");
       row.className = "composer-permission-safety-status composer-permission-danger-reflection";
-      row.title = translate("chat.dangerReflectionDescription");
+      const editable = canEditWorkflowPreferences?.() !== false;
+      row.title = translate(editable ? "chat.dangerReflectionDescription" : "chat.dangerReflectionHostOnly");
 
       const heading = document.createElement("div");
       heading.className = "composer-permission-danger-reflection-heading";
@@ -216,6 +220,7 @@ export function createComposerSelectMenus({
         const selected = level === selectedLevel;
         button.classList.toggle("is-selected", selected);
         button.setAttribute("aria-checked", selected ? "true" : "false");
+        button.disabled = !editable;
         button.textContent = translate(`chat.dangerReflectionLevels.${level}`);
         button.addEventListener("click", () => setDangerReflectionLevel(selector, level));
         selector.appendChild(button);

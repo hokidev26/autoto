@@ -159,6 +159,15 @@ test("a runtime-unavailable provider is not treated as a configured current mode
   assert.equal(controller.isCurrentModelConfigured("openai:gpt-4.1-mini"), false);
 });
 
+test("send is not blocked while the model catalog is still hydrating", () => {
+  const { controller } = harness({
+    settings: null,
+    modelCatalog: null,
+    agent: { id: "agent-1", model: "codex:gpt-5.6-luna" },
+  });
+  assert.equal(controller.isCurrentModelConfigured("codex:gpt-5.6-luna"), true);
+});
+
 test("opening Settings on an account page snaps the console back to the provider list", () => {
   // Resuming the last Gemini/Codex drill-down made the Settings button land on
   // an account screen instead of the list the sidebar says is selected.

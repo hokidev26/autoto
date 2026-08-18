@@ -136,6 +136,9 @@ func (a agentService) liveSnapshot(ctx context.Context, agentID, afterExecutionG
 	if a.runner != nil {
 		pendingUserQuestions = a.runner.ListPendingUserQuestions(agentID)
 	}
+	if err := attachMessageAuthors(ctx, a.store, snapshot.Messages); err != nil {
+		return agentLiveSnapshotResponse{}, err
+	}
 	return agentLiveSnapshotResponse{
 		Protocol:              agentpkg.ProtocolVersion,
 		Agent:                 publicLiveSnapshotAgent(snapshot.Agent),

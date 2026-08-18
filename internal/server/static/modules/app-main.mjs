@@ -92,7 +92,7 @@ import { createSkillsWorkbenchController } from "./skills-workbench.mjs";
 import { createTerminalController } from "./terminal.mjs";
 import { createUIShellController, elementVisible, isComposingInput } from "./ui-shell.mjs";
 import { createUsageHistoryController } from "./usage-history.mjs";
-import { accountIsGuest, createAccountSessionController, defaultSettingsPanelKey, visibleSettingsItems } from "./account-session.mjs";
+import { accountIsCollaborator, accountIsGuest, createAccountSessionController, defaultSettingsPanelKey, visibleSettingsItems } from "./account-session.mjs";
 import { createUserAdminSettingsController } from "./user-admin-settings.mjs";
 import { createAgentWorkspaceHelpers } from "./agent-workspace-helpers.mjs";
 import { createNavigationContextMenu } from "./navigation-context-menu.mjs";
@@ -1083,6 +1083,8 @@ backgroundTasks = createBackgroundTasksController({
   // subagent's "you" turns show the current avatar and display name rather than
   // a generic role label.
   getProfile: () => state.profile,
+  getAccount: () => state.account,
+  bypassPermissionsAllowed: () => fullAccessAllowed(state),
   // One markdown pipeline for both transcripts, so a subagent's tables, lists
   // and fenced code read the same in the panel as they do in the main thread.
   renderMarkdown: (value) => chatRendering.renderMarkdown(value),
@@ -1471,6 +1473,7 @@ const {
   sendMessage,
   setMessageInputValue,
   syncMessageComposerBusy,
+  markLiveToolOutputsInterrupted,
   toggleFastMode,
   updateDraftLimitHint,
   updatePromptHistoryHint,
@@ -1705,6 +1708,7 @@ userAdminSettings = createUserAdminSettingsController({
   state,
   copyText,
   showError,
+  showToast,
   confirmAction: (message) => platformConfirm(message),
   onChange: () => refreshActiveSettingsPanel(),
   onCreateAdministrator: () => accountSession.showOverlay({ createAdministrator: true }),
@@ -3197,6 +3201,7 @@ function startScheduleCreation() {
 }
 
 async function createNavigationItem(trigger = null) {
+  if (accountIsCollaborator(state.account) || accountIsGuest(state.account)) return null;
   const target = currentNavigationCreateTarget();
   if (target === "schedule") return startScheduleCreation();
   closeMobileSidebar();
@@ -4136,6 +4141,7 @@ const {
   rememberAgentRunError,
   scheduleMessageRefresh,
   clearLiveToolOutputs,
+  markLiveToolOutputsInterrupted,
 });
 
 function captureAgentSettingsSnapshot() {
@@ -4800,6 +4806,7 @@ async function init() {
       return;
     }
     const guest = accountIsGuest(state.account);
+    const collaborator = accountIsCollaborator(state.account);
     const accountPreferencesHydration = accountPreferences.hydrate();
     if (!state.agent) {
       $("currentTitle").textContent = t("chat.noAgent");
@@ -4823,6 +4830,8 @@ async function init() {
     signalAppReady();
     if (guest) {
       await Promise.all([accountPreferencesHydration, loadProjects(), healthPromise]);
+    } else if (collaborator) {
+      await Promise.all([accountPreferencesHydration, loadModelCatalog(), loadProjects(), healthPromise]);
     } else {
       await Promise.all([accountPreferencesHydration, loadSettings(), loadRuntimeSummary(), remoteAccessSettings.load().catch(() => {}), loadModelCatalog(), loadProjects(), loadBackends(), loadServerSkills(), healthPromise]);
       userAdminSettings?.load?.().catch(() => {});

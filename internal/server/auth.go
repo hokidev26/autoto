@@ -80,6 +80,51 @@ func (s *Server) revokeAuthSessionToken(ctx context.Context, token string) error
 	return nil
 }
 
+func requestAuthSessionToken(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	cookie, err := r.Cookie(authSessionCookieName)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(cookie.Value)
+}
+
+// revokeAuthSessionsExceptRequest revokes every account session except the one
+// on this request, then cancels their bound WebSockets. Remote policy and
+// password changes use this so a signed-in collaborator cannot keep a live
+// remote session after the host raises or lowers remote authority.
+func (s *Server) revokeAuthSessionsExceptRequest(ctx context.Context, r *http.Request) error {
+	if s.store == nil {
+		return nil
+	}
+	keep := requestAuthSessionToken(r)
+	keepHash := ""
+	if keep != "" {
+		keepHash = db.HashSessionToken(keep)
+	}
+	s.authSessionMu.Lock()
+	if _, err := s.store.RevokeAuthSessionsExceptToken(ctx, keep); err != nil {
+		s.authSessionMu.Unlock()
+		return err
+	}
+	hashes := make([]string, 0, len(s.authSessionConnections))
+	for hash := range s.authSessionConnections {
+		if keepHash != "" && hash == keepHash {
+			continue
+		}
+		hashes = append(hashes, hash)
+	}
+	cancels := make([]context.CancelFunc, 0)
+	for _, hash := range hashes {
+		cancels = append(cancels, s.removeAuthSessionConnectionsLocked(hash)...)
+	}
+	s.authSessionMu.Unlock()
+	cancelAuthSessionConnections(cancels)
+	return nil
+}
+
 // authSessionWebSocketContext binds a WebSocket to the browser login session
 // that authorized its project access. Logout or expiry therefore terminates an
 // established connection instead of only rejecting the next HTTP request.

@@ -14,6 +14,11 @@ All notable changes to Autoto are tracked here. The project is still an experime
 
 ### Changed
 
+- Local accounts now have four roles. Existing collaborators (`role=user`) keep today's powers as **operators**. A new **collaborator** role can only work in granted projects, cannot create projects, and cannot open host settings. Administrators can see every project.
+- Signing out now shows a dedicated login screen instead of a translucent overlay on top of the last conversation.
+- Background 401s no longer yank the login caret from the password field back to the account name. The overlay only auto-focuses the first time it opens.
+- Collaborators keep profile preferences across sign-out. Login previously called a blocked local-import endpoint and then wiped the saved profile.
+- Collaborators can read host workflow preferences so the permission menu can show the danger-reflection level. They still cannot change that host-wide setting, create projects, or open host settings. They can open the running-task panel for agents they already have access to (`/api/background-tasks/{id}` detail, output, wait, and cancel); those routes previously sat outside the collaborator allowlist.
 - Plan cards render in the transcript in place of the raw JSON blob, executed and cancelled plans stay visible after reopen, and the synthetic execute/replan prompts compact to short system notices.
 - Two-column navigation stops at 260px for the conversation list. Dragging further clamps instead of stretching an empty gutter; the two-column layout now starts at that same total rather than after a wider docked rail.
 - Folder-row `+` sits on the far right of the row on hover, so it no longer overlaps the folder name. Hovering anywhere on a project folder paints a pill and shows the chevron; clicking the row expands or collapses it instead of requiring the 16px folder icon.
@@ -29,6 +34,13 @@ All notable changes to Autoto are tracked here. The project is still an experime
 
 ### Fixed
 
+- Shared conversations show each sender's display name and handle on user messages. The previous behavior painted every user turn with the viewer's own profile, so two people reading the same thread saw different names.
+- Saving project access or a role in Settings → Users now shows a success toast. The save previously reloaded the page with no feedback.
+- Sending a message no longer treats a still-loading model catalog as “not configured”, which replaced the transcript with a setup card collaborators cannot open.
+- The composer’s running-task panel uses the same permission-mode list and remote cap as the main permission control, so **Allow all** is remote-disabled there too until the host allows full remote access.
+- Saving Remote Access policy or rotating the access password now revokes signed-in remote accounts (collaborators included), not only the in-memory access-password cookie. The localhost session that saved stays signed in.
+- Stopping a run from another session now tells collaborators: the transcript shows “this turn was stopped”, they get a toast, and the send button leaves Stop instead of staying there because live tool cards were still marked running.
+- Cloudflare Quick Tunnels now pin HTTP/2 over TCP 443 (in addition to IPv4). Windows networks that drop UDP/QUIC no longer require disabling IPv6 or a manual protocol switch.
 - macOS temp paths that go through `/var` (an alias of `/private/var`) no longer fail credential-store, peer-identity, skill-source, and git-workspace checks that already passed on Windows. A parent directory that is not a repository still reports a single nested child repository even when the temp path is not under HOME.
 - Hook shell `cwd` values like `C:\\workspace` are rejected on macOS and Linux, not only on Windows.
 

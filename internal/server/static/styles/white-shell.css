@@ -840,7 +840,7 @@ body.white-shell.theme-light .composer-wrap {
   min-height: 0;
   border-top: 1px solid var(--ws-border);
   background: var(--ws-card);
-  padding: 6px 12px 8px;
+  padding: 8px 12px;
   box-shadow: none;
 }
 

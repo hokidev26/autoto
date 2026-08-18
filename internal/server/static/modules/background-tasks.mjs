@@ -1,5 +1,5 @@
 import { escapeAttr, escapeHtml, setHTMLIfChanged, setTextIfChanged } from "./dom.mjs";
-import { groupModelSelectOptions, modelOptionPresentation } from "./ui-shell.mjs";
+import { groupModelSelectOptions, modelOptionPresentation, permissionMenuPrimaryValues } from "./ui-shell.mjs";
 import { formatDuration, formatTimestamp } from "./formatters.mjs";
 import { t } from "./i18n.mjs";
 import { normalizeMessageProfileIdentity } from "./chat-rendering-messages.mjs";
@@ -311,6 +311,10 @@ export function createBackgroundTasksController({
   // preference storage. Absent in headless tests, which then fall through to
   // normalizeMessageProfileIdentity's defaults.
   getProfile,
+  getAccount,
+  // Same remote/full-access cap the main composer uses, so "allow all" is not
+  // offered in this panel when the current session cannot actually run it.
+  bypassPermissionsAllowed,
   // The main transcript's markdown renderer. It lives inside the chat rendering
   // controller because it shares that closure's code-block helpers, so it is
   // handed in rather than imported. Without it the pane falls back to the
@@ -323,6 +327,9 @@ export function createBackgroundTasksController({
   const currentUserMessageIdentity = () => normalizeMessageProfileIdentity(
     typeof getProfile === "function" ? getProfile() : null,
   );
+
+  const bypassPermissionsAreAllowed = () => typeof bypassPermissionsAllowed !== "function"
+    || bypassPermissionsAllowed() !== false;
 
   const tasksById = new Map();
   const tasksByParentTool = new Map();
@@ -1113,12 +1120,28 @@ export function createBackgroundTasksController({
   const effortOptions = ["auto", "low", "medium", "high", "xhigh", "max", "ultra"];
   // Same keys the main composer's permission select uses, so a raw
   // "bypassPermissions" is never shown where every other control is translated.
-  const permissionOptions = [
-    ["readOnly", "chat.permission.readOnly"],
-    ["acceptEdits", "chat.permission.editable"],
-    ["bypassPermissions", "chat.permission.allowAll"],
-    ["default", "chat.permission.automatic"],
-  ];
+  const permissionOptionKeys = Object.freeze({
+    readOnly: "chat.permission.readOnly",
+    default: "chat.permission.automatic",
+    acceptEdits: "chat.permission.editable",
+    bypassPermissions: "chat.permission.allowAll",
+  });
+  const permissionOptions = permissionMenuPrimaryValues.map((value) => [value, permissionOptionKeys[value]]);
+
+  function permissionOptionLabel(value, key) {
+    const label = t(key);
+    if (value === "bypassPermissions" && !bypassPermissionsAreAllowed()) {
+      return `${label} (${t("workspace.terminal.remoteDisabled")})`;
+    }
+    return label;
+  }
+
+  function effectiveChildPermission(mode) {
+    const stored = mode === "dontAsk" ? "default" : mode;
+    const permission = stored || "default";
+    if (permission === "bypassPermissions" && !bypassPermissionsAreAllowed()) return "acceptEdits";
+    return permission;
+  }
 
   function renderChildConversationHTML(task) {
     const childAgentId = text(task.childAgentId);
@@ -1132,6 +1155,7 @@ export function createBackgroundTasksController({
       entityGeneration: childAgents.get(childAgentId)?.entityGeneration,
       editing: editingChild,
       userIdentity: currentUserMessageIdentity(),
+      account: typeof getAccount === "function" ? getAccount() : null,
       toolSelection: childToolSelection,
       renderMarkdown,
     });
@@ -1272,15 +1296,14 @@ export function createBackgroundTasksController({
     const effort = text(agent.reasoningEffort) || "auto";
     // dontAsk no longer exists as an option; the backend treats it exactly like
     // default, so legacy child agents that still carry it select 自動 here.
-    const storedPermission = text(agent.permissionMode);
-    const permission = (storedPermission === "dontAsk" ? "default" : storedPermission) || "default";
+    const permission = effectiveChildPermission(text(agent.permissionMode));
     const working = childIsWorking(childAgentId);
     // The model list comes from the configured providers, so this offers the same
     // choices as the main composer instead of asking the user to type an id.
     const options = availableModels();
     const known = options.some((option) => option.value === model);
     const modelLabel = options.find((option) => option.value === model)?.label || model || t("chat.model");
-    const permissionKey = (permissionOptions.find(([value]) => value === permission) || permissionOptions[3])[1];
+    const permissionKey = permissionOptionKeys[permission] || permissionOptionKeys.default;
     const modelControl = options.length
       ? childControlPillHTML({
           title: t("chat.model"),
@@ -1314,7 +1337,13 @@ export function createBackgroundTasksController({
         iconHTML: childPillIcons.permission,
         valueLabel: t(permissionKey),
         selectHTML: `<select data-background-child-permission="${escapeAttr(childAgentId)}" aria-label="${escapeAttr(t("chat.permissionMode"))}">
-          ${permissionOptions.map(([value, key]) => `<option value="${escapeAttr(value)}" ${value === permission ? "selected" : ""}>${escapeHtml(t(key))}</option>`).join("")}
+          ${permissionOptions.map(([value, key]) => {
+            const attrs = [
+              value === permission ? "selected" : "",
+              value === "bypassPermissions" && !bypassPermissionsAreAllowed() ? "disabled" : "",
+            ].filter(Boolean);
+            return `<option value="${escapeAttr(value)}"${attrs.map((attr) => ` ${attr}`).join("")}>${escapeHtml(permissionOptionLabel(value, key))}</option>`;
+          }).join("")}
         </select>`,
       })}
     </div>
@@ -1396,6 +1425,7 @@ export function createBackgroundTasksController({
       button.className = model ? "composer-select-option composer-model-option" : "composer-select-option";
       button.setAttribute("role", "option");
       button.setAttribute("aria-selected", isSelected ? "true" : "false");
+      button.disabled = Boolean(option.disabled);
       if (model) {
         // Same presentation as the main composer's model menu: the provider is
         // the group heading above, so the row shows only the model's name.
@@ -1417,6 +1447,7 @@ export function createBackgroundTasksController({
       check.textContent = isSelected ? "✓" : "";
       button.appendChild(check);
       button.addEventListener("click", () => {
+        if (option.disabled) return;
         const current = pillMenu?.select || select;
         current.value = option.value;
         const EventCtor = current.ownerDocument?.defaultView?.Event || globalThis.Event;
@@ -1749,7 +1780,12 @@ export function createBackgroundTasksController({
       if (node.dataset.backgroundChildEffort) {
         updateChildAgent(node.dataset.backgroundChildEffort, "reasoning-effort", { reasoningEffort: node.value }).catch(onError);
       } else if (node.dataset.backgroundChildPermission) {
-        updateChildAgent(node.dataset.backgroundChildPermission, "permission-mode", { permissionMode: node.value }).catch(onError);
+        const permissionMode = effectiveChildPermission(node.value);
+        if (permissionMode !== node.value) {
+          node.value = permissionMode;
+          return;
+        }
+        updateChildAgent(node.dataset.backgroundChildPermission, "permission-mode", { permissionMode }).catch(onError);
       } else if (node.dataset.backgroundChildModel) {
         const model = text(node.value);
         if (model) updateChildAgent(node.dataset.backgroundChildModel, "model", { model }).catch(onError);

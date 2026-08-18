@@ -6,6 +6,7 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestUserHandleUnicodeCaseConflictAndValidation(t *testing.T) {
@@ -117,15 +118,22 @@ func TestCreateUserRolesAndGuestAccessKeys(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if collaborator.Role != "user" {
-		t.Fatalf("second public user role = %q, want user", collaborator.Role)
+	if collaborator.Role != RoleOperator {
+		t.Fatalf("second public user role = %q, want operator", collaborator.Role)
+	}
+	operator, err := store.CreateOperatorUser(ctx, "named-operator", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if operator.Role != RoleOperator {
+		t.Fatalf("admin-created operator role = %q, want user", operator.Role)
 	}
 	named, err := store.CreateCollaboratorUser(ctx, "named-teammate", "hash")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if named.Role != "user" {
-		t.Fatalf("admin-created collaborator role = %q, want user", named.Role)
+	if named.Role != RoleCollaborator {
+		t.Fatalf("admin-created collaborator role = %q, want collaborator", named.Role)
 	}
 	if _, err := store.CreateGuestUser(ctx, "viewer", ""); err != nil {
 		t.Fatal(err)
@@ -196,5 +204,142 @@ func TestCreateUserRolesAndGuestAccessKeys(t *testing.T) {
 	}
 	if _, err := store.GetUser(ctx, guest.ID); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("deleted guest still present: %v", err)
+	}
+}
+
+func TestAdminCanAccessProjectsWithoutMembership(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(ctx, filepath.Join(t.TempDir(), "admin-access.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	admin, err := store.CreateUser(ctx, "host", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	operator, err := store.CreateOperatorUser(ctx, "operator", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, workline, agent, err := store.CreateProjectForUser(ctx, operator.ID, "Owned", "", t.TempDir(), "fake:test", "acceptEdits")
+	if err != nil {
+		t.Fatal(err)
+	}
+	member, err := store.IsProjectMember(ctx, admin.ID, project.ID)
+	if err != nil || member {
+		t.Fatalf("admin should not be stored as a member, member=%v err=%v", member, err)
+	}
+	allowed, err := store.CanAccessProject(ctx, admin.ID, project.ID)
+	if err != nil || !allowed {
+		t.Fatalf("admin CanAccessProject = %v, %v", allowed, err)
+	}
+	allowed, err = store.CanAccessWorkline(ctx, admin.ID, workline.ID)
+	if err != nil || !allowed {
+		t.Fatalf("admin CanAccessWorkline = %v, %v", allowed, err)
+	}
+	allowed, err = store.CanAccessAgent(ctx, admin.ID, agent.ID)
+	if err != nil || !allowed {
+		t.Fatalf("admin CanAccessAgent = %v, %v", allowed, err)
+	}
+	outsider, err := store.CreateCollaboratorUser(ctx, "outsider", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	allowed, err = store.CanAccessProject(ctx, outsider.ID, project.ID)
+	if err != nil || allowed {
+		t.Fatalf("collaborator without membership CanAccessProject = %v, %v", allowed, err)
+	}
+}
+
+func TestUpdateUserRoleRejectsGuestsAndInvalidRoles(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(ctx, filepath.Join(t.TempDir(), "role-update.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if _, err := store.CreateUser(ctx, "host", "hash"); err != nil {
+		t.Fatal(err)
+	}
+	operator, err := store.CreateOperatorUser(ctx, "operator", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateUserRole(ctx, operator.ID, RoleCollaborator); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := store.GetUser(ctx, operator.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Role != RoleCollaborator {
+		t.Fatalf("role = %q, want collaborator", updated.Role)
+	}
+	guest, err := store.CreateGuestUser(ctx, "viewer", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateUserRole(ctx, guest.ID, RoleOperator); err == nil {
+		t.Fatal("expected guest role change to fail")
+	}
+	if err := store.UpdateUserRole(ctx, operator.ID, RoleGuest); err == nil {
+		t.Fatal("expected conversion to guest to fail")
+	}
+	if err := store.UpdateUserRole(ctx, operator.ID, "root"); err == nil {
+		t.Fatal("expected invalid role to fail")
+	}
+}
+
+func TestRevokeAuthSessionsExceptToken(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(ctx, filepath.Join(t.TempDir(), "revoke-except.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	admin, err := store.CreateUser(ctx, "host", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	collaborator, err := store.CreateCollaboratorUser(ctx, "teammate", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	expires := now.Add(time.Hour).Format(time.RFC3339Nano)
+	created := Now()
+	if _, err := store.CreateAuthSession(ctx, AuthSession{UserID: admin.ID, TokenHash: HashSessionToken("keep-token"), CreatedAt: created, ExpiresAt: expires}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateAuthSession(ctx, AuthSession{UserID: collaborator.ID, TokenHash: HashSessionToken("drop-token"), CreatedAt: created, ExpiresAt: expires}); err != nil {
+		t.Fatal(err)
+	}
+
+	n, err := store.RevokeAuthSessionsExceptToken(ctx, "keep-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("revoked %d sessions, want 1", n)
+	}
+	if _, _, err := store.GetUserBySessionToken(ctx, "keep-token", now); err != nil {
+		t.Fatalf("kept session should stay valid: %v", err)
+	}
+	if _, _, err := store.GetUserBySessionToken(ctx, "drop-token", now); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("other session should be revoked, got %v", err)
+	}
+
+	n, err = store.RevokeAuthSessionsExceptToken(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("empty keep token revoked %d sessions, want 1", n)
+	}
+	if _, _, err := store.GetUserBySessionToken(ctx, "keep-token", now); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("empty keep token should revoke remaining sessions, got %v", err)
 	}
 }

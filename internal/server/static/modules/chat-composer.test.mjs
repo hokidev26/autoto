@@ -1360,6 +1360,16 @@ test("Composer makes an active run a compact, one-click stop action", async () =
     controller.syncMessageComposerBusy();
     assert.equal(sendButton.dataset.mobileLabel, "■");
     assert.equal(lastStopToggle(stopClasses).enabled, true);
+
+    // A stop that arrived from another client used to leave this running row
+    // in place, so the button stayed on Stop with no Continue affordance.
+    controller.markLiveToolOutputsInterrupted("agent-stop");
+    state.agent.status = "interrupted";
+    controller.syncMessageComposerBusy();
+    assert.equal(state.liveToolOutputs["tool-running"].status, "interrupted");
+    assert.equal(sendButton.dataset.mobileLabel, "↑");
+    assert.equal(lastStopToggle(stopClasses).enabled, false);
+    assert.equal(sendButton.textContent, t("workspace.chat.continueRun"));
   } finally {
     globalThis.document = previousDocument;
     globalThis.getComputedStyle = previousGetComputedStyle;

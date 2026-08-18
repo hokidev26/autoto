@@ -138,7 +138,7 @@ func (s *Server) createCorrection(w http.ResponseWriter, r *http.Request) {
 		s.writeRequestError(w, r, statusFromError(err), err)
 		return
 	}
-	writeJSON(w, http.StatusAccepted, message)
+	s.writeHydratedMessage(w, r, http.StatusAccepted, message)
 }
 
 // rerunMessage re-runs an existing user message. It carries no body beyond the

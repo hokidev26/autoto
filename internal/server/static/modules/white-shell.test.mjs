@@ -875,7 +875,7 @@ test("desktop conversation layout follows the compact resizable geometry", async
   assert.match(styles, /body\.white-shell\.theme-light \.chat-panel\s*\{[\s\S]*?grid-column:\s*3/);
   assert.match(styles, /body\.white-shell\.theme-light \.terminal-panel\s*\{[\s\S]*?grid-column:\s*4/);
   assert.match(styles, /body\.white-shell\.theme-light \.session-sidebar-header\s*\{[^}]*flex:\s*0 0 64px[^}]*height:\s*64px[^}]*min-height:\s*64px/);
-  assert.match(styles, /body\.white-shell\.theme-light \.composer-wrap\s*\{[\s\S]*?padding:\s*6px 12px 8px/);
+  assert.match(styles, /body\.white-shell\.theme-light \.composer-wrap\s*\{[\s\S]*?padding:\s*8px 12px/);
   assert.match(styles, /body\.white-shell\.theme-light \.message-input\s*\{[\s\S]*?min-height:\s*40px/);
   assert.match(styles, /body\.white-shell\.theme-light \.composer-send-btn\s*\{[\s\S]*?width:\s*34px/);
   assert.match(styles, /body\.white-shell\.theme-light \.navigation-project-row \.navigation-project-title\s*\{[\s\S]*?display:\s*flex[\s\S]*?gap:\s*6px/);
@@ -1126,6 +1126,10 @@ test("composer selects hide external labels and open titled menus upward", async
   assert.match(selectMenus, /heading\.textContent = binding\.label\?\.textContent/);
   assert.match(selectMenus, /menu\.classList\.toggle\("composer-permission-popover", isPermissionMenu\)/);
   assert.match(selectMenus, /appendPermissionSafetyStatus\(/);
+  assert.match(selectMenus, /canEditWorkflowPreferences/);
+  assert.match(selectMenus, /chat\.dangerReflectionHostOnly/);
+  assert.match(selectMenus, /chat\.workflowPreferencesUnavailable/);
+  assert.match(uiShell, /canEditWorkflowPreferences:\s*\(\) => !accountIsCollaborator\(state\?\.account\) && !accountIsGuest\(state\?\.account\)/);
   assert.match(selectMenus, /appendMessageModeSection\(/);
   assert.match(selectMenus, /usesMobileSheet[\s\S]*permissionMode/);
   assert.doesNotMatch(uiShell, /messageModeToggle/);
@@ -1218,6 +1222,8 @@ test("composer task activity is borderless, left aligned, and spins blue while a
   assert.match(backgroundTasks, /summary\.current\?\.title\s*\|\|\s*\(hasCurrentActivity[\s\S]*?headerTitle[\s\S]*?headerIdle/);
   assert.match(backgroundTasks, /headerButton\.classList\.toggle\("has-task", hasCurrentActivity\)/);
   assert.match(backgroundTasks, /headerQueue\.classList\.toggle\("hidden", summary\.queuedCount <= 0\)/);
+  assert.match(backgroundTasks, /bypassPermissionsAllowed/);
+  assert.match(appMain, /bypassPermissionsAllowed:\s*\(\) => fullAccessAllowed\(state\)/);
   // Mobile is the only view that keeps the composer pill as the fallback. The
   // project context used to gate this too, which left an ordinary conversation
   // reporting no running task for a whole turn.

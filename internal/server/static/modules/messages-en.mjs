@@ -276,6 +276,8 @@ export default Object.freeze({
     permissionGuard: "Permission protection",
     dangerReflection: "Danger reflection",
     dangerReflectionDescription: "Model reviews risky actions before they run",
+    dangerReflectionHostOnly: "Danger reflection is a host workflow setting. Collaborators can view it but not change it.",
+    workflowPreferencesUnavailable: "Workflow preferences are unavailable.",
     dangerReflectionLevels: {
       off: "Off",
       loose: "Loose",
@@ -1847,7 +1849,7 @@ export default Object.freeze({
   workspace: {
     chat: {
       emptyMessages: "No messages yet. Enter a request to start chatting.", copy: "Copy", copyMessage: "Copy message text", copied: "Copied", copyFailed: "Copy failed",
-      sending: "Sending", retryRun: "Retry", continueRun: "Continue", continuePrompt: "Continue.", stopRun: "Stop", stopRunTitle: "Stop the current run", stopRequested: "Stopping the current run…", stopFoundNothing: "Nothing was running to stop; the stale activity left on screen has been cleared.", attachmentsAdded: "Added {count} attachments to send.", attachmentsSkipped: "Skipped {count} files: {files}{suffix}.", more: " and more",
+      sending: "Sending", retryRun: "Retry", continueRun: "Continue", continuePrompt: "Continue.", stopRun: "Stop", stopRunTitle: "Stop the current run", stopRequested: "Stopping the current run…", stoppedByOther: "This turn was stopped by someone else.", stopFoundNothing: "Nothing was running to stop; the stale activity left on screen has been cleared.", attachmentsAdded: "Added {count} attachments to send.", attachmentsSkipped: "Skipped {count} files: {files}{suffix}.", more: " and more",
       videoProcessing: "Processing video…", videoSendBlocked: "Wait for video key-frame processing to finish before sending.", videoUnsupported: "Only MP4 and WebM videos are supported.", videoSourceTooLarge: "The source video exceeds 50 MiB.", videoDurationTooLong: "The video exceeds 60 seconds.", videoDerivedTooLarge: "The key frames exceed the 4 MiB derived-image budget.", videoMessageTooLarge: "The derived attachments exceed the 25 MiB message budget.", videoProcessingFailed: "The browser could not read or process this video.", videoOriginalIncluded: "Processed {name} into {count} key frames; the original video will also be sent.", videoFramesOnly: "Processed {name} into {count} key frames. The original video was omitted because it exceeds 10 MiB or the 25 MiB message budget; only visual frames are analyzed, not audio.",
       removeAttachment: "Remove attachment", previewAttachment: "View {name}", dropHint: "Drop to attach", unnamedFile: "Unnamed file", historyActive: "History {index}/{count} · ↑ older, ↓ newer, Enter sends, Esc restores draft.",
       historyCommands: "Type / to use {count} slash commands; use ↑/↓ on an empty input to recall history.", historySaved: "On an empty input, ↑ shows the previous prompt and ↓ restores the draft. {count}/30 prompts saved locally.", historyEmpty: "On an empty input, ↑/↓ recalls recent prompts.",

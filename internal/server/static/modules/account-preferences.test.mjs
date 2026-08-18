@@ -194,6 +194,27 @@ test("local import 失败保留所有旧 key", async () => {
   assert.notEqual(storage.getItem("autoto.preferredModel"), null);
 });
 
+test("import-local 403 不清除已同步的服务端个人资料", async () => {
+  const queue = requestQueue([
+    serverSnapshot({
+      localStorageImportVersion: 0,
+      profile: { displayName: "Kept", avatarInitials: "KP" },
+    }),
+    httpError(403),
+  ]);
+  const controller = createAccountPreferencesController({
+    request: queue.request,
+    storage: new MemoryStorage(),
+    eventTarget: new MemoryEvents(),
+  });
+
+  await controller.hydrate();
+
+  assert.equal(controller.getProfile().displayName, "Kept");
+  assert.equal(controller.getSnapshot().scopeKey, "user-a");
+  assert.equal(controller.getStatus(), "synced");
+});
+
 test("CAS 409 后重新 GET 并只重放一次", async () => {
   const queue = requestQueue([
     serverSnapshot({ revision: 3 }),

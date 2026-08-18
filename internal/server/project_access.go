@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
@@ -126,6 +127,13 @@ func (s *Server) requireRemoteResourceScope(w http.ResponseWriter, r *http.Reque
 		return false
 	}
 	return true
+}
+
+func (s *Server) listProjectsForAccount(ctx context.Context, user db.User, includeArchived bool) ([]db.Project, error) {
+	if userIsAdmin(user) {
+		return s.store.ListProjectsWithOptions(ctx, includeArchived)
+	}
+	return s.store.ListProjectsForUserWithOptions(ctx, user.ID, includeArchived)
 }
 
 func projectAccessTargetForRequest(r *http.Request) (projectAccessTarget, bool) {

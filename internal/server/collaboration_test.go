@@ -631,6 +631,11 @@ func TestMessageListRouteUsesCursorPagination(t *testing.T) {
 	}
 }
 
+func registerIsolationAdmin(t *testing.T, app *Server) {
+	t.Helper()
+	registerCollaborationTestUser(t, app, "isolation-admin")
+}
+
 func registerCollaborationTestUser(t *testing.T, app *Server, handle string) *http.Cookie {
 	t.Helper()
 	body := `{"handle":"` + handle + `","password":"correct horse battery staple"}`

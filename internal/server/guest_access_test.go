@@ -53,10 +53,13 @@ func TestGuestObserveAllowlist(t *testing.T) {
 		{http.MethodGet, "/api/agents/a1/workspace/tree"},
 		{http.MethodGet, "/api/agents/a1/context"},
 		{http.MethodGet, "/ws/terminal"},
+		{http.MethodGet, "/api/background-tasks/t1"},
+		{http.MethodPost, "/api/background-tasks/t1/cancel"},
 		{http.MethodPost, "/api/preferences/import-local"},
 		{http.MethodGet, "/api/users/accounts"},
 		{http.MethodPatch, "/api/agents/a1/model"},
 		{http.MethodPost, "/api/users/collaborators"},
+		{http.MethodPost, "/api/users/operators"},
 		{http.MethodPost, "/api/users/guests"},
 	}
 	for _, item := range allowed {
@@ -255,7 +258,7 @@ func TestGuestAccessIsServerEnforced(t *testing.T) {
 	}
 	assertStatus(adminCookie, http.MethodPut, "/api/users/"+teammate.ID+"/memberships", `{"projectIds":[]}`, http.StatusOK, `"handle":"teammate"`)
 	assertStatus(adminCookie, http.MethodPost, "/api/users/"+teammate.ID+"/access-keys", `{"label":"desk"}`, http.StatusBadRequest, "only managed for guest accounts")
-	assertStatus(adminCookie, http.MethodPut, "/api/users/"+adminUser.ID+"/memberships", `{"projectIds":[]}`, http.StatusBadRequest, "only managed for collaborators and guests")
+	assertStatus(adminCookie, http.MethodPut, "/api/users/"+adminUser.ID+"/memberships", `{"projectIds":[]}`, http.StatusBadRequest, "project memberships are only managed for operators, collaborators and guests")
 	assertStatus(adminCookie, http.MethodPost, "/api/agents/"+agent.ID+"/messages", `{"text":"hello"}`, http.StatusServiceUnavailable, "agent runner is not initialized")
 
 	deleteSelf := httptest.NewRecorder()
@@ -319,7 +322,7 @@ func TestAdminCreatesCollaboratorWithProjectMembership(t *testing.T) {
 	if err := json.Unmarshal(created.Body.Bytes(), &account); err != nil {
 		t.Fatal(err)
 	}
-	if account.Role != "user" || !account.PasswordSet {
+	if account.Role != db.RoleCollaborator || !account.PasswordSet {
 		t.Fatalf("unexpected collaborator payload: %+v", account)
 	}
 	if len(account.ProjectIDs) != 1 || account.ProjectIDs[0] != project.ID {
@@ -360,9 +363,13 @@ func TestAdminCreatesCollaboratorWithProjectMembership(t *testing.T) {
 
 	assertStatus(cookie, http.MethodGet, "/api/agents/"+agent.ID+"/messages", "", http.StatusOK, "")
 	assertStatus(cookie, http.MethodPost, "/api/agents/"+agent.ID+"/messages", `{"text":"hello"}`, http.StatusServiceUnavailable, "agent runner is not initialized")
-	assertStatus(cookie, http.MethodGet, "/api/settings", "", http.StatusOK, "")
-	assertStatus(cookie, http.MethodGet, "/api/users/accounts", "", http.StatusForbidden, "administrator access required")
-	assertStatus(cookie, http.MethodPost, "/api/users/collaborators", `{"handle":"other","password":"correct horse battery staple"}`, http.StatusForbidden, "administrator access required")
+	assertStatus(cookie, http.MethodGet, "/api/workflow/preferences", "", http.StatusOK, "dangerReflectionLevel")
+	assertStatus(cookie, http.MethodPut, "/api/workflow/preferences", `{"requireConfirmationForExec":true,"requireConfirmationForWrites":false,"allowReadOnlyByDefault":true}`, http.StatusForbidden, collaboratorAccessDenied)
+	assertStatus(cookie, http.MethodGet, "/api/settings", "", http.StatusForbidden, collaboratorAccessDenied)
+	assertStatus(cookie, http.MethodPost, "/api/projects", `{"name":"Other"}`, http.StatusForbidden, collaboratorAccessDenied)
+	assertStatus(cookie, http.MethodPatch, "/api/projects/"+project.ID+"/navigation-state", `{"archived":true}`, http.StatusForbidden, collaboratorAccessDenied)
+	assertStatus(cookie, http.MethodGet, "/api/users/accounts", "", http.StatusForbidden, collaboratorAccessDenied)
+	assertStatus(cookie, http.MethodPost, "/api/users/collaborators", `{"handle":"other","password":"correct horse battery staple"}`, http.StatusForbidden, collaboratorAccessDenied)
 	assertStatus(cookie, http.MethodGet, "/api/agents/"+secretAgent.ID+"/messages", "", http.StatusNotFound, "resource not found")
 	assertStatus(cookie, http.MethodGet, "/api/projects", "", http.StatusOK, `"name":"Shared"`)
 	projectsList := httptest.NewRecorder()
@@ -377,4 +384,98 @@ func TestAdminCreatesCollaboratorWithProjectMembership(t *testing.T) {
 	assertStatus(adminCookie, http.MethodPut, "/api/users/"+account.ID+"/memberships", string(grantBody), http.StatusOK, secret.ID)
 	assertStatus(cookie, http.MethodGet, "/api/agents/"+secretAgent.ID+"/messages", "", http.StatusOK, "")
 	assertStatus(adminCookie, http.MethodPost, "/api/users/"+account.ID+"/access-keys", `{"label":"desk"}`, http.StatusBadRequest, "only managed for guest accounts")
+}
+
+func TestAdminCreatesOperatorAndSeesNewProjects(t *testing.T) {
+	ctx := context.Background()
+	store, err := db.Open(ctx, filepath.Join(t.TempDir(), "operator-admin.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	shared, _, _, err := store.CreateProject(ctx, "Shared", "", t.TempDir(), "fake:test", "acceptEdits")
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := New(config.Config{Auth: config.AuthConfig{RegistrationOpen: true}}, store, nil, nil)
+	routes := app.Routes()
+	adminCookie := registerCollaborationTestUser(t, app, "host")
+
+	createBody, _ := json.Marshal(createCollaboratorRequest{
+		Handle:     "operator",
+		Password:   "correct horse battery staple",
+		ProjectIDs: []string{shared.ID},
+	})
+	created := httptest.NewRecorder()
+	req := newTestRequest(http.MethodPost, "/api/users/operators", strings.NewReader(string(createBody)))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(adminCookie)
+	routes.ServeHTTP(created, req)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create operator: %d %s", created.Code, created.Body.String())
+	}
+	var account userAccountResponse
+	if err := json.Unmarshal(created.Body.Bytes(), &account); err != nil {
+		t.Fatal(err)
+	}
+	if account.Role != db.RoleOperator {
+		t.Fatalf("operator role = %q", account.Role)
+	}
+
+	login := httptest.NewRecorder()
+	loginReq := newTestRequest(http.MethodPost, "/api/auth/login", strings.NewReader(`{"handle":"operator","password":"correct horse battery staple"}`))
+	loginReq.Header.Set("Content-Type", "application/json")
+	routes.ServeHTTP(login, loginReq)
+	if login.Code != http.StatusOK {
+		t.Fatalf("operator login: %d %s", login.Code, login.Body.String())
+	}
+	cookie := login.Result().Cookies()[0]
+
+	settings := httptest.NewRecorder()
+	settingsReq := newTestRequest(http.MethodGet, "/api/settings", nil)
+	settingsReq.AddCookie(cookie)
+	routes.ServeHTTP(settings, settingsReq)
+	if settings.Code != http.StatusOK {
+		t.Fatalf("operator settings: %d %s", settings.Code, settings.Body.String())
+	}
+
+	gitPath := filepath.Join(t.TempDir(), "operator-project")
+	createProject, _ := json.Marshal(map[string]string{"name": "Operator project", "gitPath": gitPath})
+	createdProject := httptest.NewRecorder()
+	createReq := newTestRequest(http.MethodPost, "/api/projects", strings.NewReader(string(createProject)))
+	createReq.Header.Set("Content-Type", "application/json")
+	createReq.AddCookie(cookie)
+	routes.ServeHTTP(createdProject, createReq)
+	if createdProject.Code != http.StatusCreated && createdProject.Code != http.StatusOK {
+		t.Fatalf("operator create project: %d %s", createdProject.Code, createdProject.Body.String())
+	}
+	if !strings.Contains(createdProject.Body.String(), `"name":"Operator project"`) {
+		t.Fatalf("operator create project body: %s", createdProject.Body.String())
+	}
+
+	adminList := httptest.NewRecorder()
+	adminReq := newTestRequest(http.MethodGet, "/api/projects", nil)
+	adminReq.AddCookie(adminCookie)
+	routes.ServeHTTP(adminList, adminReq)
+	if adminList.Code != http.StatusOK || !strings.Contains(adminList.Body.String(), `"name":"Operator project"`) {
+		t.Fatalf("admin should see operator-created project: %d %s", adminList.Code, adminList.Body.String())
+	}
+
+	roleBody := `{"role":"collaborator"}`
+	roleChange := httptest.NewRecorder()
+	roleReq := newTestRequest(http.MethodPatch, "/api/users/"+account.ID+"/role", strings.NewReader(roleBody))
+	roleReq.Header.Set("Content-Type", "application/json")
+	roleReq.AddCookie(adminCookie)
+	routes.ServeHTTP(roleChange, roleReq)
+	if roleChange.Code != http.StatusOK || !strings.Contains(roleChange.Body.String(), `"role":"collaborator"`) {
+		t.Fatalf("demote operator: %d %s", roleChange.Code, roleChange.Body.String())
+	}
+
+	blocked := httptest.NewRecorder()
+	blockedReq := newTestRequest(http.MethodGet, "/api/settings", nil)
+	blockedReq.AddCookie(cookie)
+	routes.ServeHTTP(blocked, blockedReq)
+	if blocked.Code != http.StatusForbidden {
+		t.Fatalf("demoted operator should lose host settings: %d %s", blocked.Code, blocked.Body.String())
+	}
 }

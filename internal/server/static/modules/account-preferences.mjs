@@ -344,7 +344,10 @@ export function createAccountPreferencesController({
         try {
           await importLegacyIfNeeded();
         } catch (error) {
-          if ([401, 403].includes(Number(error?.status))) clearActiveScope();
+          // 401 means the session is gone. 403 on import-local after a successful
+          // GET is a narrower allowlist miss and must not wipe the snapshot that
+          // refresh() just applied.
+          if (Number(error?.status) === 401) clearActiveScope();
         }
         const pending = readPendingPatch();
         if (Object.keys(pending).length) {

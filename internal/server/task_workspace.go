@@ -28,7 +28,7 @@ func (s *Server) taskWorkspace(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			return
 		}
-		projects, err = s.store.ListProjectsForUser(r.Context(), user.ID)
+		projects, err = s.listProjectsForAccount(r.Context(), user, false)
 	} else {
 		projects, err = s.store.ListProjects(r.Context())
 	}

@@ -55,6 +55,7 @@ export function createAppMainStreamWiring({
   rememberAgentRunError,
   scheduleMessageRefresh,
   clearLiveToolOutputs,
+  markLiveToolOutputsInterrupted,
 } = {}) {
 async function applyAgentLiveSnapshot(snapshot, detail = {}) {
   const agentId = snapshot?.agent?.id || "";
@@ -322,6 +323,14 @@ async function handleAgentStreamEvent(event) {
     // Stopping is the reader's own decision, so it needs no explanation. Refusals
     // the agent already routed around are not why this run ended.
     clearBlockedToolNotices(event.agentId || state.agent?.id);
+    // The clicker already marked tools interrupted in interruptRun. Other
+    // viewers still have live "running" rows, and those keep the send button
+    // in Stop with no transcript notice.
+    markLiveToolOutputsInterrupted?.(event.agentId || agentId);
+    const localStop = Number(state.localInterruptRequestedAt || 0) > 0
+      && (Date.now() - Number(state.localInterruptRequestedAt)) < 4000;
+    state.localInterruptRequestedAt = 0;
+    if (!localStop) showToast?.(t("workspace.chat.stoppedByOther"), "warn");
   }
   // A run that finished its answer routed around every refusal it hit, so those
   // are steps, not the outcome -- surfaced under a successful reply they read
@@ -338,7 +347,7 @@ async function handleAgentStreamEvent(event) {
     // leave the composer claiming either is still happening.
     state.providerRetry = null;
     state.contextCompacting = false;
-    const status = event.type === "agent.error" ? "error" : "idle";
+    const status = event.type === "agent.error" ? "error" : event.type === "agent.interrupted" ? "interrupted" : "idle";
     state.agent = { ...state.agent, status };
     syncNavigationConversationFromAgent(state.agent, { status, reason: event.type });
   }

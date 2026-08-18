@@ -10,15 +10,19 @@ import (
 const guestAccessDenied = "guest access is limited to conversations and profile"
 
 func userIsGuest(user db.User) bool {
-	return strings.EqualFold(strings.TrimSpace(user.Role), "guest")
+	return strings.EqualFold(strings.TrimSpace(user.Role), db.RoleGuest)
 }
 
 func userIsAdmin(user db.User) bool {
-	return strings.EqualFold(strings.TrimSpace(user.Role), "admin")
+	return strings.EqualFold(strings.TrimSpace(user.Role), db.RoleAdmin)
+}
+
+func userIsOperator(user db.User) bool {
+	return strings.EqualFold(strings.TrimSpace(user.Role), db.RoleOperator)
 }
 
 func userIsCollaborator(user db.User) bool {
-	return strings.EqualFold(strings.TrimSpace(user.Role), "user")
+	return strings.EqualFold(strings.TrimSpace(user.Role), db.RoleCollaborator)
 }
 
 func (s *Server) guestObserveGuard(next http.Handler) http.Handler {

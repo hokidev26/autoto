@@ -142,6 +142,20 @@ func (s *Server) revokeAllRemoteAccessSessions() {
 	cancelRemoteAccessConnections(cancels)
 }
 
+// revokeSessionsAfterRemoteSecurityChange drops in-memory remote-access
+// cookies and every account session other than the localhost operator who
+// saved. Account sessions are the lock once local users exist, so revoking
+// only autoto_remote_access would leave collaborators signed in — and they
+// would inherit the new policy on the next request without signing in again.
+func (s *Server) revokeSessionsAfterRemoteSecurityChange(r *http.Request) error {
+	s.revokeAllRemoteAccessSessions()
+	ctx := context.Background()
+	if r != nil {
+		ctx = r.Context()
+	}
+	return s.revokeAuthSessionsExceptRequest(ctx, r)
+}
+
 func (s *Server) pruneRemoteAccessSessionsLocked(now time.Time) []context.CancelFunc {
 	cancels := make([]context.CancelFunc, 0)
 	for hash, session := range s.remoteAccessSessions {
@@ -651,9 +665,10 @@ func (s *Server) updateRemoteAccessPolicy(w http.ResponseWriter, r *http.Request
 	s.cfgMu.Lock()
 	s.cfg = updated
 	s.cfgMu.Unlock()
-	// Policy changes invalidate sessions so an existing full session cannot
-	// outlive a newly restricted policy.
-	s.revokeAllRemoteAccessSessions()
+	if err := s.revokeSessionsAfterRemoteSecurityChange(r); err != nil {
+		writeError(w, http.StatusInternalServerError, "security policy was saved, but existing sessions could not be revoked")
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"allowFullAccess": updated.Security.AllowRemoteFullAccess, "defaultMode": updated.Security.DefaultRemoteAccessMode, "allowRemoteNativePicker": updated.Security.AllowRemoteNativePicker, "revision": updated.Security.CredentialRevision})
 }
 
@@ -753,7 +768,10 @@ func (s *Server) updateRemoteAccessPassword(w http.ResponseWriter, r *http.Reque
 	s.cfgMu.Lock()
 	s.cfg = updated
 	s.cfgMu.Unlock()
-	s.revokeAllRemoteAccessSessions()
+	if err := s.revokeSessionsAfterRemoteSecurityChange(r); err != nil {
+		writeError(w, http.StatusInternalServerError, "security password was saved, but existing sessions could not be revoked")
+		return
+	}
 	response := map[string]any{"credential": map[string]any{"configured": true, "source": "config"}, "revision": updated.Security.CredentialRevision}
 	if generated != "" {
 		response["generatedPassword"] = generated

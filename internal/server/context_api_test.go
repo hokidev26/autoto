@@ -31,6 +31,7 @@ func TestContextAPIStatusPreferencesClearAndAccess(t *testing.T) {
 	runner := agentpkg.NewRunner(store, providers.NewRegistry(), tools.NewRegistry(), hub, cfg.Agent)
 	app := New(cfg, store, runner, hub, providers.NewRegistry())
 
+	registerIsolationAdmin(t, app)
 	ownerCookie := registerCollaborationTestUser(t, app, "context-owner")
 	owner, _, err := store.GetUserByHandle(ctx, "context-owner")
 	if err != nil {
@@ -110,6 +111,7 @@ func TestContextAPISummaryTextOnlyOnContextEndpoint(t *testing.T) {
 	runner := agentpkg.NewRunner(store, providers.NewRegistry(), tools.NewRegistry(), hub, cfg.Agent)
 	app := New(cfg, store, runner, hub, providers.NewRegistry())
 
+	registerIsolationAdmin(t, app)
 	ownerCookie := registerCollaborationTestUser(t, app, "summary-owner")
 	owner, _, err := store.GetUserByHandle(ctx, "summary-owner")
 	if err != nil {

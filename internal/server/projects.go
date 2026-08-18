@@ -29,7 +29,7 @@ func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			return
 		}
-		projects, err = s.store.ListProjectsForUser(r.Context(), user.ID)
+		projects, err = s.listProjectsForAccount(r.Context(), user, false)
 	} else {
 		projects, err = s.store.ListProjects(r.Context())
 	}
@@ -103,11 +103,17 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	userID := ""
+	var account db.User
 	if hasUsers {
 		user, ok := s.requireUser(w, r)
 		if !ok {
 			return
 		}
+		if userIsCollaborator(user) {
+			writeError(w, http.StatusForbidden, collaboratorAccessDenied)
+			return
+		}
+		account = user
 		userID = user.ID
 	}
 
@@ -115,7 +121,7 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 		if req.ForceNewConversation {
 			var projects []db.Project
 			if hasUsers {
-				projects, err = s.store.ListProjectsForUserWithOptions(r.Context(), userID, true)
+				projects, err = s.listProjectsForAccount(r.Context(), account, true)
 			} else {
 				projects, err = s.store.ListProjectsWithOptions(r.Context(), true)
 			}

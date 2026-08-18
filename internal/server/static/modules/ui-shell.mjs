@@ -1,5 +1,6 @@
 import { $ } from "./dom.mjs";
 import { api } from "./runtime.mjs";
+import { accountIsCollaborator, accountIsGuest } from "./account-session.mjs";
 import { createComposerSelectMenus } from "./composer-select-menus.mjs";
 
 export const sidebarWidthPreferenceKey = "autoto.ui.sessionSidebarWidth";
@@ -482,6 +483,7 @@ export function createUIShellController({
       state.agent = { ...state.agent, planReflection: Boolean(enabled) };
     },
     getAgentId: () => String(state?.agent?.id || ""),
+    canEditWorkflowPreferences: () => !accountIsCollaborator(state?.account) && !accountIsGuest(state?.account),
     mobileViewport,
   });
 

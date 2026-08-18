@@ -84,6 +84,7 @@ func TestProfileConfigurationRestrictedRemoteWritesAreForbidden(t *testing.T) {
 func TestProfileConfigurationCrossProjectResourcesReturnNotFound(t *testing.T) {
 	ctx := context.Background()
 	app, store := newProfileConfigurationRouteServer(t)
+	registerIsolationAdmin(t, app)
 	ownerCookie := registerCollaborationTestUser(t, app, "profile-owner")
 	owner, _, err := store.GetUserByHandle(ctx, "profile-owner")
 	if err != nil {

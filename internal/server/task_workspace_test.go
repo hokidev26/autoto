@@ -23,6 +23,7 @@ func TestTaskWorkspaceRequiresMembershipAndOmitsSensitiveAgentFields(t *testing.
 	defer store.Close()
 	app := New(config.Config{Auth: config.AuthConfig{RegistrationOpen: true}}, store, nil, nil)
 
+	registerIsolationAdmin(t, app)
 	firstCookie := registerCollaborationTestUser(t, app, "workspace-first")
 	registerCollaborationTestUser(t, app, "workspace-second")
 	firstUser, _, err := store.GetUserByHandle(ctx, "workspace-first")

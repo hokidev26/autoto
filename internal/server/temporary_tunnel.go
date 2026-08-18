@@ -256,6 +256,9 @@ func namedPublicURL(named namedTunnelSettings) string {
 //     of os.DevNull because Windows treats NUL as a config path.
 //   - --edge-ip-version 4 avoids an unreachable IPv6 edge route without requiring
 //     users to disable IPv6 for the whole operating system.
+//   - --protocol http2 keeps the edge hop on TCP 443. cloudflared's default
+//     auto/QUIC path uses UDP, which many Windows VPN, proxy, and firewall
+//     setups drop even when IPv4 TCP 443 works.
 //   - --url is always passed. Without it a token-run tunnel takes its ingress
 //     from the dashboard, and if no ingress rule exists cloudflared answers every
 //     request with 503 while still reporting a healthy connection.
@@ -263,7 +266,7 @@ func namedPublicURL(named namedTunnelSettings) string {
 // The token goes in the environment via TUNNEL_TOKEN, never argv, because argv is
 // world-readable through process listings.
 func temporaryTunnelProcessSpec(port int, named namedTunnelSettings, configPath string) temporaryTunnelSpec {
-	args := []string{"--config", configPath, "tunnel", "--no-autoupdate", "--edge-ip-version", "4"}
+	args := []string{"--config", configPath, "tunnel", "--no-autoupdate", "--edge-ip-version", "4", "--protocol", "http2"}
 	if named.Hostname != "" {
 		// "run" with no tunnel argument uses the token from the environment.
 		args = append(args, "run", "--url", "http://127.0.0.1:"+strconv.Itoa(port))
@@ -864,7 +867,7 @@ func quickTunnelNetworkError(err error) error {
 	if err != nil {
 		cause = err.Error()
 	}
-	return fmt.Errorf("Cloudflare Quick Tunnel 無法連線（%s）。Autoto 已自動將 cloudflared Edge 設為 IPv4，不需要先手動關閉整台 Windows 的 IPv6。這不是要求你每次手動切換；請先確認目前網路允許 cloudflared 對外 TCP 443。可用 PowerShell 測試 `Test-NetConnection api.trycloudflare.com -Port 443 -AddressFamily IPv4`；若要檢查 IPv6，再執行 `ping -6 api.trycloudflare.com`。若 IPv4 也失敗，請檢查 VPN、Proxy、防火牆或防毒軟體，或改用手機熱點後重試", cause)
+	return fmt.Errorf("Cloudflare Quick Tunnel 無法連線（%s）。Autoto 已改走 IPv4 與 HTTP/2（TCP 443），不必關閉整台電腦的 IPv6。若仍失敗，多半是目前網路攔了 api.trycloudflare.com:443（VPN、Proxy、防火牆、防毒）。可先關掉 VPN 或改用手機熱點後重試，或改用 Named Tunnel", cause)
 }
 
 func scanTemporaryTunnelOutput(reader io.ReadCloser, urls chan<- string, namedURL string) {

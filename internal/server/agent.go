@@ -577,6 +577,10 @@ func (s *Server) listMessages(w http.ResponseWriter, r *http.Request) {
 		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
+	if err := attachMessageAuthors(r.Context(), s.store, page.Messages); err != nil {
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, page)
 }
 
@@ -1220,7 +1224,7 @@ func (s *Server) postMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("X-Autoto-Run-Mode", mode)
-	writeJSON(w, http.StatusAccepted, msg)
+	s.writeHydratedMessage(w, r, http.StatusAccepted, msg)
 }
 
 func (s *Server) postMultipartMessage(w http.ResponseWriter, r *http.Request) {
@@ -1267,7 +1271,7 @@ func (s *Server) postMultipartMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("X-Autoto-Run-Mode", mode)
-	writeJSON(w, http.StatusAccepted, msg)
+	s.writeHydratedMessage(w, r, http.StatusAccepted, msg)
 }
 
 func (s *Server) getMessageAttachment(w http.ResponseWriter, r *http.Request) {

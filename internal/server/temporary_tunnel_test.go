@@ -107,7 +107,7 @@ func TestTemporaryTunnelManagerStartsAndStopsWithFakeProcess(t *testing.T) {
 	if commandName != "/fake/cloudflared" {
 		t.Fatalf("unexpected cloudflared binary: %q", commandName)
 	}
-	if len(commandArgs) != 8 || commandArgs[0] != "--config" || commandArgs[1] == "" || commandArgs[2] != "tunnel" || commandArgs[3] != "--no-autoupdate" || commandArgs[4] != "--edge-ip-version" || commandArgs[5] != "4" || commandArgs[6] != "--url" || commandArgs[7] != "http://127.0.0.1:7788" {
+	if len(commandArgs) != 10 || commandArgs[0] != "--config" || commandArgs[1] == "" || commandArgs[2] != "tunnel" || commandArgs[3] != "--no-autoupdate" || commandArgs[4] != "--edge-ip-version" || commandArgs[5] != "4" || commandArgs[6] != "--protocol" || commandArgs[7] != "http2" || commandArgs[8] != "--url" || commandArgs[9] != "http://127.0.0.1:7788" {
 		t.Fatalf("unexpected cloudflared arguments: %q", commandArgs)
 	}
 	if commandArgs[1] == os.DevNull {

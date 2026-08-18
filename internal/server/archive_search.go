@@ -138,7 +138,7 @@ func (s *Server) archivedSearchConversations(w http.ResponseWriter, r *http.Requ
 		if !ok {
 			return nil, false
 		}
-		projects, err = s.store.ListProjectsForUserWithOptions(r.Context(), user.ID, true)
+		projects, err = s.listProjectsForAccount(r.Context(), user, true)
 	} else {
 		projects, err = s.store.ListProjectsWithOptions(r.Context(), true)
 	}

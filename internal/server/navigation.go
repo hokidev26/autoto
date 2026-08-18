@@ -25,7 +25,7 @@ func (s *Server) navigation(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			return
 		}
-		projects, err = s.store.ListProjectsForUserWithOptions(r.Context(), user.ID, includeArchived)
+		projects, err = s.listProjectsForAccount(r.Context(), user, includeArchived)
 	} else {
 		projects, err = s.store.ListProjectsWithOptions(r.Context(), includeArchived)
 	}

@@ -173,6 +173,7 @@ func TestOverviewMatchesTaskWorkspaceAuthenticationAndFiltersMembership(t *testi
 	}
 	defer store.Close()
 	app := New(config.Config{Auth: config.AuthConfig{RegistrationOpen: true}}, store, nil, nil)
+	registerIsolationAdmin(t, app)
 	firstCookie := registerCollaborationTestUser(t, app, "overview-first")
 	registerCollaborationTestUser(t, app, "overview-second")
 	firstUser, _, err := store.GetUserByHandle(ctx, "overview-first")

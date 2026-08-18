@@ -17,7 +17,9 @@ import {
   messageContentBlocks,
   normalizeGeneratedImageBlocks,
   normalizeImageGenerationStatusEvent,
+  formatUserMessageAuthorLabel,
   normalizeMessageProfileIdentity,
+  resolveUserMessageIdentity,
   normalizeTurnUsage,
   renderGeneratedImageBlocksHTML,
   clipboardPlainText,
@@ -91,7 +93,9 @@ export {
   normalizeAgentTaskActivity,
   normalizeGeneratedImageBlocks,
   normalizeImageGenerationStatusEvent,
+  formatUserMessageAuthorLabel,
   normalizeMessageProfileIdentity,
+  resolveUserMessageIdentity,
   normalizeToolActivity,
   normalizeTurnUsage,
   persistedReasoningSteps,
@@ -422,6 +426,7 @@ export function createChatRenderingController({
       // wrong field here renders nothing at all.
       contentText: trimmed,
       createdAt: new Date().toISOString(),
+      createdBy: String(state.account?.id || ""),
       optimistic: true,
       attachments: files.map((item, index) => ({
         id: `${id}-attachment-${index}`,
@@ -874,7 +879,13 @@ export function createChatRenderingController({
   function messageRenderSignature(message, index) {
     const editing = Boolean(message.id && state.editingMessageId === message.id);
     const usesProfileIdentity = userMessageRoles.has(chatMessagePresentation(message).normalizedRole);
-    const identity = usesProfileIdentity ? JSON.stringify(currentUserMessageIdentity()) : "";
+    const identity = usesProfileIdentity
+      ? JSON.stringify(resolveUserMessageIdentity(message, {
+        profile: state.profile,
+        account: state.account,
+        unknownAuthor: cr("message.unknownAuthor"),
+      }))
+      : "";
     const agentId = state.agent?.id || "";
     // Proxy for the active UI locale: cr(...) labels change value whenever the
     // language changes, so this stands in for whatever localized strings the
@@ -926,7 +937,13 @@ export function createChatRenderingController({
     const presentation = chatMessagePresentation(message);
     const editing = Boolean(message.id && state.editingMessageId === message.id);
     const usesProfileIdentity = userMessageRoles.has(presentation.normalizedRole);
-    const profileIdentity = usesProfileIdentity ? currentUserMessageIdentity() : null;
+    const profileIdentity = usesProfileIdentity
+      ? resolveUserMessageIdentity(message, {
+        profile: state.profile,
+        account: state.account,
+        unknownAuthor: cr("message.unknownAuthor"),
+      })
+      : null;
     const isAssistant = presentation.normalizedRole === "assistant";
     const transcriptText = transcriptMessageText(message);
     if (!editing && usesProfileIdentity && isApprovedPlanExecuteMessage(transcriptText)) {
@@ -936,13 +953,18 @@ export function createChatRenderingController({
       return renderPlanNoticeMessageHTML(message, "reflect");
     }
     const plan = isAssistant && !editing ? planForMessage(message, state) : null;
+    const liveIdentity = Boolean(profileIdentity?.live);
     const avatarHTML = usesProfileIdentity
       ? profileAvatarHTML(profileIdentity)
       : escapeHtml(presentation.role.slice(0, 1).toUpperCase() || "•");
-    const roleLabel = isAssistant ? "Autoto" : (profileIdentity?.displayName || presentation.role);
-    const profileAvatarAttr = usesProfileIdentity ? " data-user-profile-avatar" : "";
+    const roleLabel = isAssistant
+      ? "Autoto"
+      : (profileIdentity
+        ? formatUserMessageAuthorLabel(profileIdentity, cr("message.unknownAuthor"))
+        : presentation.role);
+    const profileAvatarAttr = liveIdentity ? " data-user-profile-avatar" : "";
     const roleHTML = usesProfileIdentity
-      ? `<span data-user-profile-name>${escapeHtml(roleLabel)}</span>`
+      ? `<span${liveIdentity ? " data-user-profile-name" : ""}>${escapeHtml(roleLabel)}</span>`
       : escapeHtml(roleLabel);
     const timeHTML = presentation.timestampValue
       ? `<time class="message-time" datetime="${escapeAttr(presentation.timestampValue)}" title="${escapeAttr(formatTimestamp(presentation.timestampValue))}">${escapeHtml(formatTimestamp(presentation.timestampValue, { timeOnly: true }))}</time>`
@@ -2042,14 +2064,12 @@ export function createChatRenderingController({
       `;
     }
     if (status === "interrupted") {
-      // Stop with no stored reason is the user ending the turn. The transcript
-      // already keeps whatever was salvaged, so the generic "this round was
-      // interrupted; history remains" divider adds nothing. A stored reason
-      // means the run stopped for something they did not click, and that
-      // sentence is usually the only place the cause is visible.
+      // A stored reason that is not a user Stop is usually the only place the
+      // cause is visible. A user Stop used to omit the divider because the
+      // clicker already knew; a collaborator watching the same turn then saw
+      // the reply freeze and the send button stay on Stop with no explanation.
       const raw = String(run?.errorMessage || "").trim();
-      if (!raw || isUserInterruptedReason(raw)) return "";
-      const reason = runFailureMessage(run);
+      const reason = !raw || isUserInterruptedReason(raw) ? cr("run.stoppedNotice") : runFailureMessage(run);
       return `<div class="conversation-run-notice interrupted" role="status"><span class="conversation-run-notice-message" title="${escapeAttr(reason)}">${escapeHtml(reason)}</span></div>`;
     }
     return "";

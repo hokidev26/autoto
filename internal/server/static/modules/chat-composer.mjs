@@ -1135,9 +1135,18 @@ export function createChatComposerController({
   async function interruptRun() {
     const agentId = state.agent?.id;
     if (!agentId) return;
+    // Stamp this client so the matching agent.interrupted event does not also
+    // toast "someone else stopped this turn" on the person who clicked Stop.
+    state.localInterruptRequestedAt = Date.now();
     // Interrupting is not a send, so it deliberately does not take the sending
     // lock: the run is already in flight and the button must stay responsive.
-    const response = await request(`/api/agents/${agentId}/interrupt`, { method: "POST" });
+    let response;
+    try {
+      response = await request(`/api/agents/${agentId}/interrupt`, { method: "POST" });
+    } catch (error) {
+      state.localInterruptRequestedAt = 0;
+      throw error;
+    }
     // The server reports whether anything was actually stopped. Saying "stop
     // requested" either way is how a stop that had nothing to cancel became
     // indistinguishable from one that worked.
@@ -1145,7 +1154,10 @@ export function createChatComposerController({
     markLiveToolOutputsInterrupted(agentId);
     state.liveAssistantActive = false;
     if (interrupted) showToast?.(t("workspace.chat.stopRequested"), "info");
-    else showToast?.(t("workspace.chat.stopFoundNothing"), "warn");
+    else {
+      state.localInterruptRequestedAt = 0;
+      showToast?.(t("workspace.chat.stopFoundNothing"), "warn");
+    }
     syncMessageComposerBusy();
     scheduleMessageRefresh?.(600, agentId);
   }
@@ -1696,6 +1708,7 @@ export function createChatComposerController({
     rerunLastUserMessage,
     setMessageInputValue,
     syncMessageComposerBusy,
+    markLiveToolOutputsInterrupted,
     toggleFastMode,
     updateDraftLimitHint,
     updateMentionPalette,

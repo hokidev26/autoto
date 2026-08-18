@@ -16,7 +16,9 @@ import {
   normalizeAgentTaskActivity,
   normalizeGeneratedImageBlocks,
   normalizeImageGenerationStatusEvent,
+  formatUserMessageAuthorLabel,
   normalizeMessageProfileIdentity,
+  resolveUserMessageIdentity,
   normalizeToolActivity,
   normalizeTurnUsage,
   nextToolActivitySelection,
@@ -529,6 +531,58 @@ test("message profile identity normalizes current profile fields with safe fallb
     avatarInitials: "AT",
     avatarDataUrl: "",
   });
+});
+
+test("user message identity stays on the viewer only for their own turns", () => {
+  const own = resolveUserMessageIdentity(
+    { role: "user", createdBy: "ray-id", author: { id: "ray-id", handle: "ray", displayName: "Stale Ray" } },
+    { profile: { displayName: "Live Ray", avatarInitials: "LR" }, account: { id: "ray-id", handle: "ray" } },
+  );
+  assert.equal(own.live, true);
+  assert.equal(own.displayName, "Live Ray");
+  assert.equal(formatUserMessageAuthorLabel(own), "Live Ray");
+
+  const other = resolveUserMessageIdentity(
+    { role: "user", createdBy: "feng-id", author: { id: "feng-id", handle: "feng", displayName: "Feng Wei", avatarInitials: "fg" } },
+    { profile: { displayName: "Live Ray", avatarInitials: "LR" }, account: { id: "ray-id", handle: "ray" } },
+  );
+  assert.equal(other.live, false);
+  assert.equal(other.displayName, "Feng Wei");
+  assert.equal(formatUserMessageAuthorLabel(other), "Feng Wei (@feng)");
+
+  const unknown = resolveUserMessageIdentity(
+    { role: "user" },
+    { profile: { displayName: "Live Ray" }, account: { id: "ray-id", handle: "ray" }, unknownAuthor: "使用者" },
+  );
+  assert.equal(unknown.live, false);
+  assert.equal(formatUserMessageAuthorLabel(unknown, "使用者"), "使用者");
+});
+
+test("shared transcripts render each sender instead of the viewer's profile", () => {
+  const { html } = renderSnapshot([
+    {
+      id: "m-ray",
+      role: "user",
+      contentText: "from ray",
+      createdBy: "ray-id",
+      author: { id: "ray-id", handle: "ray", displayName: "管理員雷", avatarInitials: "雷" },
+    },
+    {
+      id: "m-feng",
+      role: "user",
+      contentText: "from feng",
+      createdBy: "feng-id",
+      author: { id: "feng-id", handle: "feng", displayName: "協作者風", avatarInitials: "風" },
+    },
+  ], {
+    profile: { displayName: "管理員雷", avatarInitials: "雷" },
+    account: { id: "ray-id", handle: "ray" },
+  });
+  assert.match(html, /data-user-profile-name>管理員雷<\/span>/);
+  assert.match(html, />協作者風 \(@feng\)<\/span>/);
+  assert.doesNotMatch(html, /data-user-profile-name>協作者風/);
+  assert.equal((html.match(/data-user-profile-avatar>雷<\/span>/g) || []).length, 1);
+  assert.match(html, /class="message-avatar" aria-hidden="true">風<\/span>/);
 });
 
 test("chat hydration batches message snapshots until the final forced render", () => {
@@ -1086,12 +1140,14 @@ test("ordinary error and failed runs render one escaped line carrying retry and 
   }
 });
 
-test("user-stopped interrupted runs omit the transcript notice while superseded runs stay hidden", () => {
+test("user-stopped interrupted runs show a short transcript notice while superseded runs stay hidden", () => {
   const interrupted = renderSnapshot([], {
     activeRunSummaryRunId: "run-interrupted",
     activeRunSummary: { run: { id: "run-interrupted", source: "conversation", status: "interrupted" }, toolCalls: [], recentMessages: [] },
   });
-  assert.doesNotMatch(interrupted.html, /conversation-run-notice|已有消息和工具记录仍保留|This response was interrupted/);
+  assert.match(interrupted.html, /conversation-run-notice interrupted/);
+  assert.ok(interrupted.html.includes("这轮已停止") || interrupted.html.includes("這輪已停止") || interrupted.html.includes("This turn was stopped."));
+  assert.doesNotMatch(interrupted.html, /已有消息和工具记录仍保留|This response was interrupted/);
 
   const superseded = renderSnapshot([], {
     activeRunSummaryRunId: "run-superseded",
@@ -4791,7 +4847,7 @@ test("interrupted conversation runs show the reason they stopped", () => {
   assert.doesNotMatch(html, /已有消息和工具记录仍保留|This response was interrupted/);
 });
 
-test("interrupted conversation runs with no reason omit the transcript notice", () => {
+test("interrupted conversation runs with no reason show a short stopped notice", () => {
   const { html } = renderSnapshot([], {
     activeRunSummaryRunId: "run-interrupted-plain",
     activeRunSummary: {
@@ -4801,8 +4857,9 @@ test("interrupted conversation runs with no reason omit the transcript notice", 
     },
   });
 
-  assert.doesNotMatch(html, /conversation-run-notice/);
-  assert.doesNotMatch(html, /本轮已中断|本輪已中斷|This response was interrupted/);
+  assert.match(html, /conversation-run-notice interrupted/);
+  assert.ok(html.includes("这轮已停止") || html.includes("這輪已停止") || html.includes("This turn was stopped."));
+  assert.doesNotMatch(html, /本轮已中断；已有消息和工具记录仍保留|本輪已中斷；已有訊息與工具記錄仍保留|This response was interrupted/);
   assert.doesNotMatch(html, /本轮未能完成回复/);
 
   const userStop = renderSnapshot([], {
@@ -4813,7 +4870,9 @@ test("interrupted conversation runs with no reason omit the transcript notice", 
       recentMessages: [],
     },
   });
-  assert.doesNotMatch(userStop.html, /conversation-run-notice/);
+  assert.match(userStop.html, /conversation-run-notice interrupted/);
+  assert.ok(userStop.html.includes("这轮已停止") || userStop.html.includes("這輪已停止") || userStop.html.includes("This turn was stopped."));
+  assert.doesNotMatch(userStop.html, /本轮已中断；已有消息和工具记录仍保留|This response was interrupted/);
 });
 
 // A continuation failure that is not the Git case must still say something

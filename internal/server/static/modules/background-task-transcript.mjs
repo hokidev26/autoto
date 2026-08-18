@@ -10,6 +10,10 @@ import {
   renderToolActivityStackHTML,
   transcriptMessageText,
 } from "./chat-rendering.mjs";
+import {
+  formatUserMessageAuthorLabel,
+  resolveUserMessageIdentity,
+} from "./chat-rendering-messages.mjs";
 
 function text(value) {
   return String(value ?? "").trim();
@@ -65,6 +69,7 @@ export function renderChildConversationHTML({
   entityGeneration,
   editing = null,
   userIdentity,
+  account,
   toolSelection = new Map(),
   renderMarkdown,
 } = {}) {
@@ -85,7 +90,7 @@ export function renderChildConversationHTML({
     const isEditing = Boolean(editing && editing.agentId === agentId && editing.messageId === messageId && role === "user");
     const bubbleClass = `background-task-bubble role-${role} chat-message${isEditing ? " message-editing" : ""}`;
     return `<article class="${bubbleClass}"${messageId ? ` data-message-id="${escapeAttr(messageId)}"` : ""} data-message-role="${escapeAttr(role)}" data-agent-id="${escapeAttr(agentId)}"${Number.isInteger(generation) ? ` data-entity-generation="${escapeAttr(String(generation))}"` : ""}>
-        ${renderChildMessageHeadHTML(role, message, agentId, userIdentity, { editing: isEditing })}
+        ${renderChildMessageHeadHTML(role, message, agentId, userIdentity, account, { editing: isEditing })}
         ${renderChildActivityHTML(agentId, `msg:${messageId}`, calls, persistedReasoningSteps(message, calls), runId, toolSelection)}
         ${isEditing ? renderChildCorrectionHTML(message, agentId) : (body ? renderChildBodyHTML(body, renderMarkdown) : "")}
       </article>`;
@@ -95,7 +100,7 @@ export function renderChildConversationHTML({
   return `<div class="background-task-conversation">${earlier}${bubbles}</div>`;
 }
 
-function renderChildMessageHeadHTML(role, message, childAgentId, userIdentity, { editing = false } = {}) {
+function renderChildMessageHeadHTML(role, message, childAgentId, userIdentity, account, { editing = false } = {}) {
   const timestampValue = text(message?.createdAt);
   const timeHTML = timestampValue
     ? `<time class="message-time" datetime="${escapeAttr(timestampValue)}" title="${escapeAttr(formatTimestamp(timestampValue))}">${escapeHtml(formatTimestamp(timestampValue, { timeOnly: true }))}</time>`
@@ -117,9 +122,15 @@ function renderChildMessageHeadHTML(role, message, childAgentId, userIdentity, {
         ${timeHTML}
       </div>`;
   }
-  const identity = userIdentity || { displayName: "", avatarInitials: "" };
+  const identity = resolveUserMessageIdentity(message, {
+    profile: userIdentity,
+    account,
+    unknownAuthor: cr("message.unknownAuthor"),
+  });
+  const liveIdentity = Boolean(identity.live);
+  const label = formatUserMessageAuthorLabel(identity, cr("message.unknownAuthor"));
   return `<div class="message-head">
-      <div class="message-meta"><span class="message-avatar" aria-hidden="true" data-user-profile-avatar>${profileAvatarHTML(identity)}</span><div class="message-role"><span data-user-profile-name>${escapeHtml(identity.displayName)}</span></div></div>
+      <div class="message-meta"><span class="message-avatar" aria-hidden="true"${liveIdentity ? " data-user-profile-avatar" : ""}>${profileAvatarHTML(identity)}</span><div class="message-role"><span${liveIdentity ? " data-user-profile-name" : ""}>${escapeHtml(label)}</span></div></div>
       ${actions}
       ${timeHTML}
     </div>`;

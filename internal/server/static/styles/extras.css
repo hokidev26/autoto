@@ -4414,13 +4414,25 @@ body.guest-observe .terminal-panel,
 body.guest-observe #terminalToggleBtn {
   display: none !important;
 }
+body.collaborator-limited [data-global-rail-target="schedules"],
+body.collaborator-limited #newProjectBtn,
+body.collaborator-limited #newTaskBtn,
+body.collaborator-limited #mobileChooseDirectoryBtn,
+body.collaborator-limited #mobileNewScheduleBtn,
+body.collaborator-limited [data-create-navigation-item],
+body.collaborator-limited [data-open-directory-shortcut],
+body.collaborator-limited .terminal-panel,
+body.collaborator-limited #terminalToggleBtn {
+  display: none !important;
+}
 
 .guest-observe-banner.hidden,
-body:not(.guest-observe) .guest-observe-banner {
+body:not(.guest-observe):not(.collaborator-limited) .guest-observe-banner {
   display: none;
 }
 
-body.guest-observe .guest-observe-banner:not(.hidden) {
+body.guest-observe .guest-observe-banner:not(.hidden),
+body.collaborator-limited .guest-observe-banner:not(.hidden) {
   display: block;
   margin: 0 16px 16px;
   padding: 12px 14px;
@@ -4430,15 +4442,21 @@ body.guest-observe .guest-observe-banner:not(.hidden) {
   border: 1px solid var(--ws-border, #e5e7eb);
 }
 
+body.account-session-locked #appShell,
+body.account-session-locked #appearanceBackgroundLayer {
+  visibility: hidden;
+  pointer-events: none;
+}
+
 .account-session-overlay {
   position: fixed;
   inset: 0;
-  z-index: 80;
+  z-index: 200;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: color-mix(in srgb, #0f172a 46%, transparent);
+  background: var(--ws-canvas, #f8fafc);
 }
 
 .account-session-overlay.hidden {

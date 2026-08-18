@@ -11,16 +11,27 @@ export function accountIsAdmin(account) {
   return String(account?.role || "") === "admin";
 }
 
+export function accountIsOperator(account) {
+  return String(account?.role || "") === "user";
+}
+
+export function accountIsCollaborator(account) {
+  return String(account?.role || "") === "collaborator";
+}
+
+const collaboratorSettingsKeys = new Set(["profile", "appearance"]);
+
 export function visibleSettingsItems(account, hasUsers) {
   return settingsItems.filter((item) => {
     if (accountIsGuest(account)) return item.key === "profile";
+    if (accountIsCollaborator(account)) return collaboratorSettingsKeys.has(item.key);
     if (item.key === "users") return accountIsAdmin(account) || !hasUsers;
     return true;
   });
 }
 
 export function defaultSettingsPanelKey(account, hasUsers = true) {
-  if (accountIsGuest(account)) return "profile";
+  if (accountIsGuest(account) || accountIsCollaborator(account)) return "profile";
   if (!hasUsers) return "users";
   return "providers";
 }
@@ -38,10 +49,13 @@ export function createAccountSessionController({
 
   function applyGuestShell() {
     const guest = accountIsGuest(state.account);
+    const collaborator = accountIsCollaborator(state.account);
     document.body?.classList.toggle("guest-observe", guest);
+    document.body?.classList.toggle("collaborator-limited", collaborator);
     const banner = $("guestObserveBanner");
-    banner?.classList.toggle("hidden", !guest);
+    banner?.classList.toggle("hidden", !(guest || collaborator));
     if (banner && guest) banner.textContent = t("accountSession.guestBanner");
+    if (banner && collaborator) banner.textContent = t("accountSession.collaboratorBanner");
   }
 
   function setMode(mode) {
@@ -55,9 +69,35 @@ export function createAccountSessionController({
     $("accountSessionUseKeyBtn")?.classList.toggle("active", useKey);
   }
 
+  function setLockedShell(locked) {
+    document.body?.classList.toggle("account-session-locked", Boolean(locked));
+  }
+
+  function overlayIsOpen(root = overlay()) {
+    return Boolean(root) && !root.classList.contains("hidden") && root.getAttribute("aria-hidden") !== "true";
+  }
+
+  function focusInitialLoginField() {
+    const root = overlay();
+    const active = globalThis.document?.activeElement;
+    if (active && typeof root?.contains === "function" && root.contains(active)) return;
+    if (root?.dataset?.mode === "key") {
+      $("accountSessionAccessKey")?.focus();
+      return;
+    }
+    const handle = $("accountSessionHandle");
+    if (handle && !String(handle.value || "").trim()) {
+      handle.focus();
+      return;
+    }
+    $("accountSessionPassword")?.focus();
+  }
+
   function showOverlay({ createAdministrator = false } = {}) {
     const root = overlay();
     if (!root) return;
+    const alreadyOpen = overlayIsOpen(root);
+    setLockedShell(true);
     root.classList.remove("hidden");
     root.setAttribute("aria-hidden", "false");
     $("accountSessionTitle").textContent = createAdministrator ? t("accountSession.createTitle") : t("accountSession.title");
@@ -65,12 +105,16 @@ export function createAccountSessionController({
     $("accountSessionSubmitBtn").textContent = createAdministrator ? t("accountSession.createSubmit") : t("accountSession.submit");
     $("accountSessionKeyToggle")?.classList.toggle("hidden", createAdministrator);
     setMode(createAdministrator ? "password" : (overlay()?.dataset.mode || "password"));
-    $("accountSessionHandle")?.focus();
+    // Later 401s from health/navigation reuse this overlay. Focusing the
+    // handle every time yanked the caret out of the password field while the
+    // person was still typing.
+    if (!alreadyOpen) focusInitialLoginField();
   }
 
   function hideOverlay() {
     const root = overlay();
     if (!root) return;
+    setLockedShell(false);
     root.classList.add("hidden");
     root.setAttribute("aria-hidden", "true");
     const error = $("accountSessionError");
@@ -182,7 +226,13 @@ export function createAccountSessionController({
 
   function profileSessionHTML() {
     if (!state.account?.handle) return "";
-    const roleKey = accountIsAdmin(state.account) ? "accountSession.roleAdmin" : accountIsGuest(state.account) ? "accountSession.roleGuest" : "accountSession.roleUser";
+    const roleKey = accountIsAdmin(state.account)
+      ? "accountSession.roleAdmin"
+      : accountIsGuest(state.account)
+        ? "accountSession.roleGuest"
+        : accountIsCollaborator(state.account)
+          ? "accountSession.roleCollaborator"
+          : "accountSession.roleOperator";
     return `
       <section class="settings-card settings-card-content profile-session-card">
         <div class="settings-provider-title settings-card-title">${escapeHtml(t("accountSession.signedInAs", { handle: state.account.handle }))}</div>

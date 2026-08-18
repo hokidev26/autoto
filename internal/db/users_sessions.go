@@ -16,6 +16,23 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
+const (
+	RoleAdmin        = "admin"
+	RoleOperator     = "user"
+	RoleCollaborator = "collaborator"
+	RoleGuest        = "guest"
+)
+
+func normalizeAccountRole(role string) (string, error) {
+	role = strings.ToLower(strings.TrimSpace(role))
+	switch role {
+	case "", RoleAdmin, RoleOperator, RoleCollaborator, RoleGuest:
+		return role, nil
+	default:
+		return "", errors.New("invalid role")
+	}
+}
+
 func (s *userStore) HasUsers(ctx context.Context) (bool, error) {
 	var count int
 	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM users`).Scan(&count); err != nil {
@@ -45,11 +62,15 @@ func (s *userStore) CreateUser(ctx context.Context, handle, passwordHash string)
 }
 
 func (s *userStore) CreateGuestUser(ctx context.Context, handle, passwordHash string) (User, error) {
-	return s.createUser(ctx, handle, passwordHash, "guest", false)
+	return s.createUser(ctx, handle, passwordHash, RoleGuest, false)
+}
+
+func (s *userStore) CreateOperatorUser(ctx context.Context, handle, passwordHash string) (User, error) {
+	return s.createUser(ctx, handle, passwordHash, RoleOperator, false)
 }
 
 func (s *userStore) CreateCollaboratorUser(ctx context.Context, handle, passwordHash string) (User, error) {
-	return s.createUser(ctx, handle, passwordHash, "user", false)
+	return s.createUser(ctx, handle, passwordHash, RoleCollaborator, false)
 }
 
 func (s *userStore) createUser(ctx context.Context, handle, passwordHash, role string, assignUnowned bool) (User, error) {
@@ -57,8 +78,11 @@ func (s *userStore) createUser(ctx context.Context, handle, passwordHash, role s
 	if err != nil {
 		return User{}, err
 	}
-	role = strings.TrimSpace(role)
-	if passwordHash == "" && role != "guest" {
+	role, err = normalizeAccountRole(role)
+	if err != nil {
+		return User{}, err
+	}
+	if passwordHash == "" && role != RoleGuest {
 		return User{}, errors.New("password hash is required")
 	}
 	user := User{ID: NewID(), Username: handle, Handle: handle, Role: role, CreatedAt: Now()}
@@ -74,12 +98,12 @@ func (s *userStore) createUser(ctx context.Context, handle, passwordHash, role s
 	}
 	if user.Role == "" {
 		if existingUsers == 0 {
-			user.Role = "admin"
+			user.Role = RoleAdmin
 		} else {
-			user.Role = "user"
+			user.Role = RoleOperator
 		}
 	}
-	if existingUsers == 0 && user.Role != "admin" {
+	if existingUsers == 0 && user.Role != RoleAdmin {
 		return User{}, errors.New("the first user must be an administrator")
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO users (id, username, handle, handle_key, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, user.ID, user.Username, user.Handle, handleKey, passwordHash, user.Role, user.CreatedAt); err != nil {
@@ -183,20 +207,66 @@ WHERE EXISTS (SELECT 1 FROM users WHERE id = ?)
 }
 
 // CanAccessProject, CanAccessWorkline, and CanAccessAgent are the canonical
-// membership checks for all project-scoped server resources.
+// membership checks for all project-scoped server resources. Administrators
+// can reach every project so host owners can archive and grant work created
+// by operators or collaborators.
 func (s *userStore) CanAccessProject(ctx context.Context, userID, projectID string) (bool, error) {
-	return s.IsProjectMember(ctx, userID, projectID)
+	userID = strings.TrimSpace(userID)
+	projectID = strings.TrimSpace(projectID)
+	if userID == "" || projectID == "" {
+		return false, nil
+	}
+	var count int
+	err := s.db.QueryRowContext(ctx, `
+SELECT COUNT(*) FROM users u
+WHERE u.id = ?
+  AND (
+    u.role = ?
+    OR EXISTS (SELECT 1 FROM project_members pm WHERE pm.user_id = u.id AND pm.project_id = ?)
+  )`, userID, RoleAdmin, projectID).Scan(&count)
+	return count > 0, err
 }
 
 func (s *userStore) CanAccessWorkline(ctx context.Context, userID, worklineID string) (bool, error) {
+	userID = strings.TrimSpace(userID)
+	worklineID = strings.TrimSpace(worklineID)
+	if userID == "" || worklineID == "" {
+		return false, nil
+	}
 	var count int
-	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM worklines w JOIN project_members pm ON pm.project_id = w.project_id WHERE w.id = ? AND pm.user_id = ?`, strings.TrimSpace(worklineID), strings.TrimSpace(userID)).Scan(&count)
+	err := s.db.QueryRowContext(ctx, `
+SELECT COUNT(*) FROM users u
+WHERE u.id = ?
+  AND (
+    u.role = ?
+    OR EXISTS (
+      SELECT 1 FROM worklines w
+      JOIN project_members pm ON pm.project_id = w.project_id
+      WHERE w.id = ? AND pm.user_id = u.id
+    )
+  )`, userID, RoleAdmin, worklineID).Scan(&count)
 	return count > 0, err
 }
 
 func (s *userStore) CanAccessAgent(ctx context.Context, userID, agentID string) (bool, error) {
+	userID = strings.TrimSpace(userID)
+	agentID = strings.TrimSpace(agentID)
+	if userID == "" || agentID == "" {
+		return false, nil
+	}
 	var count int
-	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM agents a JOIN worklines w ON w.id = a.workline_id JOIN project_members pm ON pm.project_id = w.project_id WHERE a.id = ? AND pm.user_id = ?`, strings.TrimSpace(agentID), strings.TrimSpace(userID)).Scan(&count)
+	err := s.db.QueryRowContext(ctx, `
+SELECT COUNT(*) FROM users u
+WHERE u.id = ?
+  AND (
+    u.role = ?
+    OR EXISTS (
+      SELECT 1 FROM agents a
+      JOIN worklines w ON w.id = a.workline_id
+      JOIN project_members pm ON pm.project_id = w.project_id
+      WHERE a.id = ? AND pm.user_id = u.id
+    )
+  )`, userID, RoleAdmin, agentID).Scan(&count)
 	return count > 0, err
 }
 
@@ -232,6 +302,36 @@ func (s *userStore) CountUsersByRole(ctx context.Context, role string) (int, err
 	var count int
 	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE role = ?`, strings.TrimSpace(role)).Scan(&count)
 	return count, err
+}
+
+func (s *userStore) UpdateUserRole(ctx context.Context, userID, role string) error {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return errors.New("user is required")
+	}
+	role, err := normalizeAccountRole(role)
+	if err != nil || role == "" || role == RoleGuest {
+		return errors.New("invalid role")
+	}
+	var current string
+	if err := s.db.QueryRowContext(ctx, `SELECT role FROM users WHERE id = ?`, userID).Scan(&current); err != nil {
+		return err
+	}
+	if current == RoleGuest {
+		return errors.New("guest accounts cannot change role")
+	}
+	result, err := s.db.ExecContext(ctx, `UPDATE users SET role = ? WHERE id = ? AND role != ?`, role, userID, RoleGuest)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (s *userStore) DeleteUser(ctx context.Context, userID string) error {
@@ -390,4 +490,20 @@ func (s *userStore) GetUserBySessionToken(ctx context.Context, token string, now
 func (s *userStore) RevokeAuthSessionToken(ctx context.Context, token string) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE auth_sessions SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL`, Now(), HashSessionToken(token))
 	return err
+}
+
+func (s *userStore) RevokeAuthSessionsExceptToken(ctx context.Context, keepToken string) (int64, error) {
+	now := Now()
+	keepToken = strings.TrimSpace(keepToken)
+	var result sql.Result
+	var err error
+	if keepToken == "" {
+		result, err = s.db.ExecContext(ctx, `UPDATE auth_sessions SET revoked_at = ? WHERE revoked_at IS NULL`, now)
+	} else {
+		result, err = s.db.ExecContext(ctx, `UPDATE auth_sessions SET revoked_at = ? WHERE revoked_at IS NULL AND token_hash != ?`, now, HashSessionToken(keepToken))
+	}
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }

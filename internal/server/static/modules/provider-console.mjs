@@ -2528,7 +2528,13 @@ export function createModelProviderSettingsController({
 
   function isCurrentModelConfigured(modelValue = $("modelSelect")?.value || state.agent?.model || "") {
     const provider = currentProviderConfig(modelValue);
-    return Boolean(provider?.configured && providerRuntimeSelectable(provider));
+    if (provider) return Boolean(provider.configured && providerRuntimeSelectable(provider));
+    // Collaborators never load /api/settings, so until /api/models returns there is
+    // no client-side configured flag. Blocking send in that window replaced the
+    // transcript with a setup card they cannot open.
+    const catalogReady = state.modelCatalog != null;
+    const settingsReady = Array.isArray(state.settings?.providers);
+    return !catalogReady && !settingsReady;
   }
 
   function updateModelConfiguredState() {

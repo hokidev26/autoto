@@ -183,13 +183,25 @@ type Message struct {
 	CorrectionOfMessageID string            `json:"correctionOfMessageId,omitempty"`
 	// SupersededAt is set on the messages a correction retired. They stay in the
 	// transcript so the history remains readable, but are withheld from the model.
-	SupersededAt    string           `json:"supersededAt,omitempty"`
-	CreatedBy       string           `json:"createdBy,omitempty"`
+	SupersededAt string `json:"supersededAt,omitempty"`
+	CreatedBy    string `json:"createdBy,omitempty"`
+	// Author is populated at read time from createdBy. It is not stored.
+	Author          *MessageAuthor   `json:"author,omitempty"`
 	CompletionState string           `json:"completionState,omitempty"`
 	StopReason      string           `json:"stopReason,omitempty"`
 	CreatedAt       string           `json:"createdAt"`
 	Attachments     []Attachment     `json:"attachments,omitempty"`
 	GeneratedImages []GeneratedImage `json:"generatedImages,omitempty"`
+}
+
+// MessageAuthor is the public identity of a user who posted a transcript turn.
+// Handle is the stable account name; display fields come from that user's
+// current profile and never include avatars, emails, or secrets.
+type MessageAuthor struct {
+	ID             string `json:"id,omitempty"`
+	Handle         string `json:"handle,omitempty"`
+	DisplayName    string `json:"displayName,omitempty"`
+	AvatarInitials string `json:"avatarInitials,omitempty"`
 }
 
 type MessagePage struct {

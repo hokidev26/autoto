@@ -39,16 +39,28 @@ test("user admin page creates collaborators and guests with project grants", () 
         keys: [],
         projectIds: ["p1"],
       },
+      {
+        id: "collab-1",
+        handle: "worker",
+        role: "collaborator",
+        passwordSet: true,
+        keyCount: 0,
+        keys: [],
+        projectIds: ["p1"],
+      },
     ],
   };
   const html = createUserAdminSettingsController({ state }).render();
   assert.match(html, /class="settings-live-page user-admin-page"/);
   assert.match(html, /settings-stat-grid/);
   assert.match(html, />1<\/strong><span>Administrators<\/span>/);
+  assert.match(html, />1<\/strong><span>Operators<\/span>/);
   assert.match(html, />1<\/strong><span>Collaborators<\/span>/);
   assert.match(html, />1<\/strong><span>Guests<\/span>/);
+  assert.match(html, /id="createOperatorBtn"/);
   assert.match(html, /id="createCollaboratorBtn"/);
   assert.match(html, /id="createGuestBtn"/);
+  assert.match(html, /id="createOperatorForm"/);
   assert.match(html, /id="createCollaboratorForm"/);
   assert.match(html, /id="collaboratorHandleInput"/);
   assert.match(html, /id="collaboratorPasswordInput"/);
@@ -58,10 +70,10 @@ test("user admin page creates collaborators and guests with project grants", () 
   assert.match(html, /class="[^"]*user-admin-accounts/);
   assert.match(html, /user-admin-account-list/);
   assert.match(html, /data-settings-help-copy/);
-  assert.match(html, /data-settings-help-copy>Administrators can create collaborators and guests/);
+  assert.match(html, /data-settings-help-copy>Administrators can create operators, collaborators, and guests/);
   assert.match(html, /data-settings-help-copy>Collaborators sign in with a handle and password/);
   assert.match(html, /data-settings-help-copy>Guests can only watch conversations/);
-  assert.match(html, /data-settings-help-copy>Collaborators can have working project membership/);
+  assert.match(html, /data-settings-help-copy>Operators and collaborators can have working project membership/);
   const accountsCard = html.slice(html.indexOf("user-admin-accounts"), html.indexOf("user-admin-account-list"));
   assert.doesNotMatch(accountsCard, /<details/);
   assert.match(html, /id="guestHandleInput"/);
@@ -80,7 +92,8 @@ test("user admin page creates collaborators and guests with project grants", () 
   assert.match(html, /data-issue-key/);
   assert.match(html, /data-save-memberships/);
   assert.match(html, /data-user-id="user-1"/);
-  assert.match(html, /data-delete-user/);
+  assert.match(html, /data-user-id="collab-1"/);
+  assert.match(html, /data-save-role/);
   const selfCard = html.slice(html.indexOf('data-user-id="admin-1"'), html.indexOf('data-user-id="guest-1"'));
   assert.match(selfCard, /user-admin-avatar/);
   assert.match(selfCard, />You</);
@@ -104,6 +117,7 @@ test("bootstrap page offers administrator creation when no local users exist", (
   assert.match(html, /data-settings-help-copy>No local accounts yet/);
   assert.doesNotMatch(html, /id="createGuestForm"/);
   assert.doesNotMatch(html, /id="createCollaboratorForm"/);
+  assert.doesNotMatch(html, /id="createOperatorForm"/);
 });
 
 test("user admin styles stack the hero card like other settings pages", () => {
@@ -120,7 +134,8 @@ test("user admin styles stack the hero card like other settings pages", () => {
   assert.match(source, /composer-select-option/);
   assert.match(source, /spaceBelow >= spaceAbove/);
   assert.doesNotMatch(source, /data-settings-help-copy">\$\{escapeHtml\(t\("users\.createdKey"\)\)\}/);
-  assert.doesNotMatch(source, /showToast/);
+  assert.match(source, /showToast\?\.\(t\("users\.membershipsSaved"\), "success"/);
+  assert.match(source, /showToast\?\.\(t\("users\.roleSaved"\), "success"/);
 });
 
 test("non-administrators do not fetch the account directory", async () => {
