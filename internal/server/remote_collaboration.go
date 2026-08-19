@@ -266,6 +266,7 @@ func (s *Server) approveRemoteCollaborationInvitation(w http.ResponseWriter, r *
 		return
 	}
 	invitationID := chi.URLParam(r, "id")
+	previouslyActive, _ := s.store.ListRemotePeerPairings(r.Context(), db.RemotePeerPairingListOptions{LocalRole: db.RemotePeerLocalRoleHost, Status: db.RemotePeerPairingStatusActive, Limit: 200})
 	if err := s.recordRequiredPeerAudit(r.Context(), audit.Event{
 		Category: "peer", Action: "pairing.approve", Actor: "local-api", SubjectType: "peer_invitation", SubjectID: invitationID,
 		Outcome: "success", Risk: "critical", Details: map[string]any{"revision": request.Revision, "grantCount": len(request.Grants), "scopes": request.Scopes},
@@ -280,7 +281,7 @@ func (s *Server) approveRemoteCollaborationInvitation(w http.ResponseWriter, r *
 		s.writeStoreError(w, r, err)
 		return
 	}
-	_ = runtime.manager.InvalidatePairing(pairing.ID)
+	s.invalidateSupersededPeerPairings(runtime, pairing, previouslyActive)
 	writeJSON(w, http.StatusOK, remotePeerPairingView{Pairing: pairing, Grants: grants})
 }
 
@@ -512,6 +513,7 @@ func (s *Server) pollRemoteCollaborationClaim(w http.ResponseWriter, r *http.Req
 		if !response.ExpiresAt.IsZero() {
 			expiresAt = response.ExpiresAt.UTC().Format(time.RFC3339Nano)
 		}
+		previouslyActive, _ := s.store.ListRemotePeerPairings(r.Context(), db.RemotePeerPairingListOptions{LocalRole: db.RemotePeerLocalRoleController, Status: db.RemotePeerPairingStatusActive, Limit: 200})
 		pairing, createErr := s.store.CreateRemotePeerPairing(r.Context(), db.RemotePeerPairing{
 			ID: response.PairingID, LocalRole: db.RemotePeerLocalRoleController, DisplayName: response.HostDisplayName,
 			PeerInstallationID: response.HostInstallationID, PeerPublicKey: response.HostIdentity.PublicKey, PeerFingerprint: response.HostIdentity.Fingerprint,
@@ -527,6 +529,7 @@ func (s *Server) pollRemoteCollaborationClaim(w http.ResponseWriter, r *http.Req
 			s.writeStoreError(w, r, createErr)
 			return
 		}
+		s.invalidateSupersededPeerPairings(runtime, pairing, previouslyActive)
 		runtime.promoteClaim(invitationID, pairing.ID)
 	}
 	if response.Status == db.RemotePairingInvitationStatusRejected || response.Status == db.RemotePairingInvitationStatusRevoked || response.Status == db.RemotePairingInvitationStatusExpired {
@@ -777,6 +780,20 @@ func writePeerControlError(w http.ResponseWriter, err error) {
 	default:
 		writeError(w, http.StatusInternalServerError, "remote collaboration request failed")
 	}
+}
+
+func (s *Server) invalidateSupersededPeerPairings(runtime *remoteCollaborationRuntime, pairing db.RemotePeerPairing, previouslyActive []db.RemotePeerPairing) {
+	if runtime == nil || runtime.manager == nil {
+		return
+	}
+	for _, item := range previouslyActive {
+		if item.ID == pairing.ID || item.PeerFingerprint != pairing.PeerFingerprint {
+			continue
+		}
+		_ = runtime.manager.InvalidatePairing(item.ID)
+		runtime.removeClient(item.ID)
+	}
+	_ = runtime.manager.InvalidatePairing(pairing.ID)
 }
 
 func fingerprintPrefix(fingerprint string) string {

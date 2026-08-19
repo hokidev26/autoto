@@ -45,6 +45,7 @@ All notable changes to Autoto are tracked here. The project is still an experime
 
 ### Fixed
 
+- Reconnecting the same Autoto devices no longer fails with a generic conflict. A repeat claim from the same identity is idempotent, and a new invitation from that peer replaces the previous active pairing.
 - The remote-collaboration pairing card no longer leaves a blank second column beside the sharing switch and fingerprint.
 - The conversation sidebar keeps a Remote collaboration section visible on the controller, even before a pairing has shared any agents.
 - Revoked and expired remote-collaboration pairings can be deleted from settings so inactive records do not accumulate. Active pairings still have to be revoked first.

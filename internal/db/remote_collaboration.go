@@ -317,6 +317,16 @@ func (s *remoteCollaborationStore) ClaimRemotePairingInvitation(ctx context.Cont
 		return RemotePairingInvitation{}, fmt.Errorf("claim remote pairing invitation: %w", err)
 	}
 	if err := requireRemoteTransition(result, "claim remote pairing invitation"); err != nil {
+		if !IsConflict(err) {
+			return RemotePairingInvitation{}, err
+		}
+		current, getErr := getRemotePairingInvitation(ctx, s.db, id)
+		if getErr != nil {
+			return RemotePairingInvitation{}, err
+		}
+		if remoteInvitationClaimMatchesRequester(current, codeHash, requester) {
+			return current, nil
+		}
 		return RemotePairingInvitation{}, err
 	}
 	return getRemotePairingInvitation(ctx, s.db, id)
@@ -356,16 +366,32 @@ func (s *remoteCollaborationStore) ApproveRemotePairingInvitation(ctx context.Co
 	if expectedRevision < 1 {
 		return RemotePeerPairing{}, nil, errors.New("remote pairing invitation expected revision must be positive")
 	}
+	invitation, err := getRemotePairingInvitation(ctx, s.db, id)
+	if err != nil {
+		return RemotePeerPairing{}, nil, err
+	}
+	now := Now()
+	if invitation.Status != RemotePairingInvitationStatusClaimed || invitation.Revision != expectedRevision || invitation.ExpiresAt <= now || !remoteInvitationRequesterComplete(invitation) {
+		return RemotePeerPairing{}, nil, fmt.Errorf("%w: remote pairing invitation cannot be approved", ErrConflict)
+	}
+	// SQLite's partial unique index on active fingerprints does not always
+	// release the slot in the same transaction as the revoke UPDATE, so the
+	// previous pairing is committed first and the replacement is inserted next.
+	if err := revokeActiveRemotePeerPairingByFingerprint(ctx, s.db, RemotePeerLocalRoleHost, invitation.RequesterFingerprint, "", now); err != nil {
+		return RemotePeerPairing{}, nil, err
+	}
+	if err := reindexActiveRemotePeerPairings(ctx, s.db); err != nil {
+		return RemotePeerPairing{}, nil, err
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return RemotePeerPairing{}, nil, err
 	}
 	defer tx.Rollback()
-	invitation, err := getRemotePairingInvitation(ctx, tx, id)
+	invitation, err = getRemotePairingInvitation(ctx, tx, id)
 	if err != nil {
 		return RemotePeerPairing{}, nil, err
 	}
-	now := Now()
 	if invitation.Status != RemotePairingInvitationStatusClaimed || invitation.Revision != expectedRevision || invitation.ExpiresAt <= now || !remoteInvitationRequesterComplete(invitation) {
 		return RemotePeerPairing{}, nil, fmt.Errorf("%w: remote pairing invitation cannot be approved", ErrConflict)
 	}
@@ -456,10 +482,35 @@ func (s *remoteCollaborationStore) CreateRemotePeerPairing(ctx context.Context, 
 	if err != nil {
 		return RemotePeerPairing{}, err
 	}
+	if err := insertRemotePeerPairing(ctx, s.db, canonical, scopesJSON); err == nil {
+		return canonical, nil
+	} else if !IsConflict(err) {
+		return RemotePeerPairing{}, err
+	}
+	existing, getErr := getRemotePeerPairing(ctx, s.db, canonical.ID)
+	if getErr == nil {
+		if existing.LocalRole != RemotePeerLocalRoleController || existing.PeerFingerprint != canonical.PeerFingerprint || existing.EndpointOrigin != canonical.EndpointOrigin {
+			return RemotePeerPairing{}, fmt.Errorf("%w: existing controller pairing does not match approved claim", ErrConflict)
+		}
+		return existing, nil
+	}
+	if !IsNotFound(getErr) {
+		return RemotePeerPairing{}, getErr
+	}
+	if err := revokeActiveRemotePeerPairingByFingerprint(ctx, s.db, RemotePeerLocalRoleController, canonical.PeerFingerprint, "", now); err != nil {
+		return RemotePeerPairing{}, err
+	}
 	if err := insertRemotePeerPairing(ctx, s.db, canonical, scopesJSON); err != nil {
 		return RemotePeerPairing{}, err
 	}
 	return canonical, nil
+}
+
+func reindexActiveRemotePeerPairings(ctx context.Context, execer remoteCollaborationExecer) error {
+	if _, err := execer.ExecContext(ctx, `REINDEX idx_remote_peer_pairings_active_fingerprint`); err != nil {
+		return fmt.Errorf("reindex remote peer pairings: %w", err)
+	}
+	return nil
 }
 
 func (s *remoteCollaborationStore) GetRemotePeerPairing(ctx context.Context, id string) (RemotePeerPairing, error) {
@@ -741,6 +792,39 @@ func (s *remoteCollaborationStore) TouchRemotePeerPairingLastSeen(ctx context.Co
 
 type remoteCollaborationExecer interface {
 	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
+func revokeActiveRemotePeerPairingByFingerprint(ctx context.Context, execer remoteCollaborationExecer, localRole, fingerprint, keepID, now string) error {
+	query := `UPDATE remote_peer_pairings SET status = 'revoked', credential_revision = credential_revision + 1, revoked_at = ?, updated_at = ? WHERE local_role = ? AND peer_fingerprint = ? AND status = 'active'`
+	args := []any{now, now, localRole, fingerprint}
+	if keepID = strings.TrimSpace(keepID); keepID != "" {
+		query += ` AND id != ?`
+		args = append(args, keepID)
+	}
+	result, err := execer.ExecContext(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("supersede remote peer pairing: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected > 1 {
+		return fmt.Errorf("%w: multiple active pairings for one peer fingerprint", ErrConflict)
+	}
+	return nil
+}
+
+func remoteInvitationClaimMatchesRequester(invitation RemotePairingInvitation, codeHash string, requester RemotePairingRequester) bool {
+	switch invitation.Status {
+	case RemotePairingInvitationStatusClaimed, RemotePairingInvitationStatusApproved:
+	default:
+		return false
+	}
+	return invitation.CodeHash == codeHash &&
+		invitation.RequesterFingerprint == requester.Fingerprint &&
+		invitation.RequesterPublicKey == requester.PublicKey &&
+		invitation.RequesterInstallationID == requester.InstallationID
 }
 
 func insertRemotePeerPairing(ctx context.Context, execer remoteCollaborationExecer, pairing RemotePeerPairing, scopesJSON string) error {

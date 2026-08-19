@@ -297,6 +297,19 @@ test("redeeming an invitation tracks the pending claim until it is polled", asyn
   await assert.rejects(harness.controller.connectPeer("", "name"), /邀请码/);
 });
 
+test("a connect conflict explains that the invitation or pairing is already in use", async () => {
+  const harness = createHarness({
+    responses: {
+      "/api/remote-collaboration/connect": () => {
+        const err = new Error("peer request conflicts with current state");
+        err.status = 409;
+        throw err;
+      },
+    },
+  });
+  await assert.rejects(harness.controller.connectPeer("autoto-pair:abc", "Desk"), /已经配对|邀请码已用过/);
+});
+
 test("an approved claim clears the pending card and reloads the pairing list", async () => {
   const harness = createHarness({
     responses: {

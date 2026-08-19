@@ -172,6 +172,95 @@ func TestRemotePairingClaimApproveAndRevoke(t *testing.T) {
 	}
 }
 
+func TestRemotePairingSamePeerCanReconnectWithoutConflict(t *testing.T) {
+	ctx := context.Background()
+	store := openRemoteCollaborationTestStore(t, ctx)
+	defer store.Close()
+	project, _, agent, err := store.CreateProject(ctx, "Remote", "", t.TempDir(), "openai:test", "acceptEdits")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	invitation := createRemoteInvitation(t, ctx, store, "first-code", time.Now().UTC().Add(time.Hour))
+	requester := remoteTestRequester("a")
+	claimed, err := store.ClaimRemotePairingInvitation(ctx, invitation.ID, invitation.CodeHash, invitation.Revision, requester)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := store.ClaimRemotePairingInvitation(ctx, invitation.ID, invitation.CodeHash, invitation.Revision, requester)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.ID != claimed.ID || again.Status != RemotePairingInvitationStatusClaimed || again.Revision != claimed.Revision {
+		t.Fatalf("repeat claim was not idempotent: %+v", again)
+	}
+	if _, err := store.ClaimRemotePairingInvitation(ctx, invitation.ID, invitation.CodeHash, claimed.Revision, remoteTestRequester("b")); !IsConflict(err) {
+		t.Fatalf("a different requester was allowed to take the claimed invitation: %v", err)
+	}
+
+	first, _, err := store.ApproveRemotePairingInvitation(ctx, claimed.ID, claimed.Revision, RemotePeerPairing{
+		Scopes: []string{RemotePeerScopeObserve, RemotePeerScopeSendTask},
+	}, []RemotePeerGrant{{
+		ProjectID: project.ID, AgentID: agent.ID, Scopes: []string{RemotePeerScopeObserve}, PermissionModeCap: RemotePeerPermissionModeReadOnly,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	replacement := createRemoteInvitation(t, ctx, store, "second-code", time.Now().UTC().Add(time.Hour))
+	replacementClaim, err := store.ClaimRemotePairingInvitation(ctx, replacement.ID, replacement.CodeHash, replacement.Revision, requester)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	second, _, err := store.ApproveRemotePairingInvitation(ctx, replacementClaim.ID, replacementClaim.Revision, RemotePeerPairing{
+		Scopes: []string{RemotePeerScopeObserve},
+	}, []RemotePeerGrant{{
+		ProjectID: project.ID, AgentID: agent.ID, Scopes: []string{RemotePeerScopeObserve}, PermissionModeCap: RemotePeerPermissionModeReadOnly,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.ID == first.ID || second.Status != RemotePeerPairingStatusActive || second.PeerFingerprint != requester.Fingerprint {
+		t.Fatalf("replacement pairing was not active: %+v", second)
+	}
+	replaced, err := store.GetRemotePeerPairing(ctx, first.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replaced.Status != RemotePeerPairingStatusRevoked {
+		t.Fatalf("previous pairing was not revoked: %+v", replaced)
+	}
+
+	controllerFirst, err := store.CreateRemotePeerPairing(ctx, RemotePeerPairing{
+		DisplayName: "Host", PeerInstallationID: "host-installation", PeerPublicKey: remoteTestPublicKey(),
+		PeerFingerprint: remoteTestFingerprint(), EndpointOrigin: "https://one.example.test", Scopes: []string{RemotePeerScopeObserve},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	controllerSecond, err := store.CreateRemotePeerPairing(ctx, RemotePeerPairing{
+		DisplayName: "Host", PeerInstallationID: "host-installation", PeerPublicKey: remoteTestPublicKey(),
+		PeerFingerprint: remoteTestFingerprint(), EndpointOrigin: "https://one.example.test", Scopes: []string{RemotePeerScopeObserve, RemotePeerScopeSendTask},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if controllerSecond.ID == controllerFirst.ID {
+		t.Fatal("controller repair reused the revoked pairing id")
+	}
+	previous, err := store.GetRemotePeerPairing(ctx, controllerFirst.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if previous.Status != RemotePeerPairingStatusRevoked {
+		t.Fatalf("previous controller pairing was not revoked: %+v", previous)
+	}
+	if controllerSecond.Status != RemotePeerPairingStatusActive {
+		t.Fatalf("replacement controller pairing was not active: %+v", controllerSecond)
+	}
+}
+
 func TestRemotePairingRevisionConflicts(t *testing.T) {
 	ctx := context.Background()
 	store := openRemoteCollaborationTestStore(t, ctx)

@@ -6,6 +6,7 @@
     { "text": "重建 EXE 并运行测试", "status": "done" },
     { "text": "訪客觀察角色：管理員建立訪客、金鑰登入、伺服器 allowlist", "status": "done" },
     { "text": "控制端側欄列出對方分享的對話，點進去檢視與傳送任務", "status": "done" },
-    { "text": "已撤銷的遠端配對可從設定刪除", "status": "done" }
+    { "text": "已撤銷的遠端配對可從設定刪除", "status": "done" },
+    { "text": "同一裝置重新連線不再因 fingerprint 衝突失敗", "status": "done" }
   ]
 }

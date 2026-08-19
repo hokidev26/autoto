@@ -330,18 +330,29 @@ export function createPeerCollaborationSettingsController({
   async function connectPeer(invitationCode, displayName) {
     const code = textValue(invitationCode);
     if (!code) throw new Error(rt("connectCodeRequired"));
-    const result = objectValue(await request(endpoint + "/connect", {
-      method: "POST",
-      body: JSON.stringify({ invitation: code, displayName: textValue(displayName, "Autoto") }),
-    }));
+    let result;
+    try {
+      result = objectValue(await request(endpoint + "/connect", {
+        method: "POST",
+        body: JSON.stringify({ invitation: code, displayName: textValue(displayName, "Autoto") }),
+      }));
+    } catch (err) {
+      if (Number(err?.status) === 409) throw new Error(rt("connectConflict"));
+      throw err;
+    }
     const claim = objectValue(result.claim);
     const claimId = textValue(claim.invitationId);
+    const claimStatus = textValue(claim.status, "claimed");
     if (claimId) {
       pendingClaims.set(claimId, {
         origin: textValue(result.origin),
         hostFingerprint: textValue(result.hostFingerprint),
-        status: textValue(claim.status, "claimed"),
+        status: claimStatus,
       });
+    }
+    if (claimStatus === "approved" && claimId) {
+      await pollClaim(claimId);
+      return claimId;
     }
     showToast?.(rt("claimSentToast"));
     onChange?.(state.peerCollaboration);
