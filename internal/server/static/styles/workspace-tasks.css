@@ -1020,6 +1020,16 @@ body.white-shell.theme-light.theme-dark .navigation-boundary-empty button {
   transform: rotate(90deg);
 }
 
+.tool-activity-summary .disclosure-chevron {
+  order: 2;
+  margin-inline-start: auto;
+}
+
+@media (hover: hover) {
+  .tool-activity-summary .disclosure-chevron { opacity: 0; }
+  .tool-activity-summary:is(:hover, :focus-visible) .disclosure-chevron { opacity: 1; }
+}
+
 
 .tool-activity-steps {
   display: grid;
@@ -3223,15 +3233,18 @@ body.white-shell.theme-light .background-task-bubble.role-assistant .message-rol
   container: settings-network-page / inline-size;
 }
 #settingsContentBody .remote-access-page .settings-hero-card,
-#settingsContentBody .peer-collaboration-page .settings-hero-card {
+#settingsContentBody .peer-collaboration-page .settings-hero-card,
+#settingsContentBody .peer-collaboration-page > section.peer-collaboration-hero {
   display: flex;
   flex-direction: column;
   align-items: stretch;
   justify-content: flex-start;
   gap: 14px;
+  width: 100%;
 }
 #settingsContentBody .peer-collaboration-page {
-  gap: 10px;
+  display: grid;
+  gap: 16px;
 }
 #settingsContentBody .peer-collaboration-hero-head { align-items: flex-start; }
 #settingsContentBody .peer-collaboration-hero-tools {
@@ -3244,6 +3257,7 @@ body.white-shell.theme-light .background-task-bubble.role-assistant .message-rol
 }
 #settingsContentBody .peer-collaboration-stack {
   min-width: 0;
+  width: 100%;
   display: grid;
   overflow: hidden;
   border: 1px solid var(--settings-border, #dfe3ea);
@@ -3385,7 +3399,37 @@ body.white-shell.theme-light .background-task-bubble.role-assistant .message-rol
 }
 
 /* Peer collaboration — pairing invitations, grants and scope editors */
-.peer-collaboration-page .settings-provider-section + .settings-provider-section { margin-top: 12px; }
+#settingsContentBody .peer-collaboration-page > section.settings-card:not(.peer-collaboration-hero) {
+  display: grid;
+  gap: 14px;
+  align-content: start;
+}
+#settingsContentBody .peer-collaboration-page > section.settings-card > :is(.settings-card-header, .settings-provider-section-head) {
+  margin-bottom: 0;
+}
+#settingsContentBody .peer-collaboration-stack-list {
+  display: grid;
+  gap: 12px;
+}
+#settingsContentBody .peer-collaboration-item {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--settings-border, #dfe3ea);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--settings-muted, #f1f5f9) 58%, var(--settings-surface, #fff));
+  box-shadow: none;
+}
+#settingsContentBody .peer-collaboration-item > :is(.settings-card-header, .settings-provider-section-head) {
+  margin-bottom: 0;
+}
+#settingsContentBody .peer-collaboration-item > .settings-card-footer {
+  margin-top: 2px;
+}
+#settingsContentBody .peer-collaboration-empty {
+  margin: 0;
+}
 .peer-collaboration-invitation,
 .peer-collaboration-pairing { display: grid; gap: 10px; }
 .peer-collaboration-created { display: grid; gap: 10px; justify-items: start; }
@@ -3447,6 +3491,10 @@ body.white-shell.theme-light.theme-dark .peer-collaboration-grant-head > strong 
 body.white-shell.theme-light.theme-dark .peer-collaboration-grant-list { color: var(--settings-foreground); }
 body.white-shell.theme-light.theme-dark .peer-collaboration-scope small { color: var(--settings-muted-foreground); }
 body.white-shell.theme-light.theme-dark .peer-collaboration-qr { border-color: var(--settings-border); }
+body.white-shell.theme-light.theme-dark .peer-collaboration-item {
+  border-color: var(--settings-border);
+  background: var(--settings-surface-muted);
+}
 body.white-shell.theme-light.theme-dark .peer-collaboration-stack,
 body.white-shell.theme-light.theme-dark .peer-collaboration-meta {
   border-color: var(--settings-border);
@@ -3468,6 +3516,77 @@ body.white-shell.theme-light.theme-dark .peer-collaboration-meta-row dd.is-missi
 body.white-shell.theme-light.theme-dark .peer-collaboration-meta,
 body.white-shell.theme-light.theme-dark .peer-collaboration-meta-row + .peer-collaboration-meta-row {
   border-top-color: var(--settings-border);
+}
+
+.peer-collaboration-nav {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+.peer-collaboration-nav-label {
+  padding: 8px 10px 0;
+  color: var(--ws-muted, #64748b);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.peer-collaboration-nav-host-row { pointer-events: none; }
+.peer-collaboration-nav-empty {
+  margin: 0;
+  padding: 6px 10px 10px 36px;
+  color: var(--ws-muted, #64748b);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.peer-collaboration-transcript-banner {
+  margin: 0 16px 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--ws-border, #e5e7eb);
+  background: var(--ws-card, #fff);
+  color: var(--ws-muted, #5b6478);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.peer-collaboration-transcript-more {
+  margin: 0 16px 12px;
+  color: var(--ws-muted, #64748b);
+  font-size: 12px;
+}
+.peer-collaboration-approvals {
+  display: grid;
+  gap: 10px;
+  margin: 0 16px 16px;
+}
+.peer-collaboration-approval {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--ws-border, #e5e7eb);
+  background: var(--ws-input, #f4f6fa);
+}
+.peer-collaboration-approval-risk,
+.peer-collaboration-approval-warning { color: var(--ws-muted, #64748b); font-size: 12px; }
+.peer-collaboration-approval-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+body.peer-conversation #conversationToolGroup,
+body.peer-conversation #copyConversationBtn,
+body.peer-conversation .composer-model-field,
+body.peer-conversation .composer-effort-field,
+body.peer-conversation .composer-permission-field,
+body.peer-conversation #openProviderLoginBtn,
+body.peer-conversation #contextUsageBtn,
+body.peer-conversation #headerTaskSummaryBtn,
+body.peer-conversation .composer-attach-wrap,
+body.peer-conversation #slashCommandPalette,
+body.peer-conversation #mentionPalette {
+  display: none !important;
+}
+body.peer-conversation-readonly #sendMessageBtn {
+  opacity: .45;
+  pointer-events: none;
 }
 
 /* Remote access — dark mode */

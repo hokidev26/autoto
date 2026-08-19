@@ -699,6 +699,10 @@ test("project, task, and schedule modes expose separate creation boundaries", as
   assert.match(appMain, /state\.navigationMode = "projects"/);
   assert.match(appMain, /if \(scheduleContext\)[\s\S]*?scheduleWorkspace\.renderNavigation/);
   assert.match(appMain, /renderNavigationHTML\(view, \{[\s\S]*?taskContext,/);
+  assert.match(appMain, /data-peer-target/);
+  assert.match(appMain, /selectPeerConversation/);
+  assert.match(appMain, /keepPeerConversation/);
+  assert.match(appMain, /input\.placeholder = t\("chat\.messagePlaceholder"\)/);
   assert.match(appMain, /newTaskBtn"\)\?\.addEventListener\("click", \(\) => focusTaskCreation\(\)\.catch\(showError\)\)/);
   assert.match(appMain, /\$\("mobileScheduleModeBtn"\)\?\.addEventListener\("click", \(\) => \{[\s\S]*?closeMobileSidebar\(\);[\s\S]*?switchPrimaryWorkbench\(state\.activeWorkbench === "schedules" \? "conversation" : "schedules"\)/);
   assert.match(appMain, /projectKanban\.focusCreate\(\)/);
@@ -1044,6 +1048,9 @@ test("desktop conversation layout follows the compact resizable geometry", async
   assert.match(styles, /@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*?\.navigation-disclosure svg\s*\{\s*transition:\s*none/);
   assert.match(styles, /\.tool-activity-summary \.disclosure-chevron,[\s\S]*?stroke-width:\s*1\.5/);
   assert.match(styles, /\.tool-activity-group\[open\] > \.tool-activity-summary \.disclosure-chevron,[\s\S]*?transform:\s*rotate\(90deg\)/);
+  assert.match(styles, /\.tool-activity-summary \.disclosure-chevron \{[\s\S]*?order:\s*2;[\s\S]*?margin-inline-start:\s*auto/);
+  assert.match(styles, /@media \(hover: hover\) \{[\s\S]*?\.tool-activity-summary \.disclosure-chevron \{ opacity: 0; \}/);
+  assert.match(styles, /\.tool-activity-summary:is\(:hover, :focus-visible\) \.disclosure-chevron \{ opacity: 1; \}/);
   assert.match(styles, /\.plan-card-head \.disclosure-chevron/);
   assert.match(styles, /body\.white-shell\.theme-light \.plan-card-feedback textarea\s*\{[\s\S]*?background:\s*var\(--ws-input\)/);
   assert.doesNotMatch(styles, /\.plan-card-feedback textarea \{[^}]*rgba\(17, 19, 24/);

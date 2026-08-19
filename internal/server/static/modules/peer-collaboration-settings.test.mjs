@@ -257,6 +257,19 @@ test("revoking a pairing sends the credential revision that invalidates peer tok
   assert.deepEqual(revoke.body, { status: "active", credentialRevision: 3 });
 });
 
+test("deleting a revoked pairing sends the inactive status and credential revision", async () => {
+  const harness = createHarness({
+    status: statusPayload({ pairings: [hostPairing({ status: "revoked", revokedAt: "2026-08-13T09:00:00Z" })] }),
+  });
+  await harness.controller.load();
+  const html = harness.controller.render();
+  assert.match(html, /data-peer-action="delete-pairing"/);
+  assert.doesNotMatch(html, /data-peer-action="revoke-pairing"/);
+  await harness.controller.deletePairing("pairing-1");
+  const removed = harness.requests.find((entry) => entry.path.endsWith("/pairings/pairing-1/delete"));
+  assert.deepEqual(removed.body, { status: "revoked", credentialRevision: 3 });
+});
+
 test("redeeming an invitation tracks the pending claim until it is polled", async () => {
   const harness = createHarness({
     responses: {
@@ -352,11 +365,16 @@ test("peer collaboration cards share the settings-network panel container", asyn
   assert.match(css, /#settingsContentBody \.peer-collaboration-page/);
   assert.match(css, /container:\s*settings-network-page\s*\/\s*inline-size/);
   assert.match(css, /@container settings-network-page \(max-width: 759px\)[\s\S]*?\.peer-collaboration-qr/);
-  assert.match(css, /#settingsContentBody \.peer-collaboration-page \.settings-hero-card \{[\s\S]*?flex-direction:\s*column/);
-  assert.match(css, /#settingsContentBody \.peer-collaboration-stack \{/);
+  assert.match(css, /#settingsContentBody \.peer-collaboration-page \.settings-hero-card[\s\S]*?flex-direction:\s*column/);
+  assert.match(css, /#settingsContentBody \.peer-collaboration-page > section\.peer-collaboration-hero/);
+  assert.match(css, /#settingsContentBody \.peer-collaboration-page > section\.settings-card:not\(\.peer-collaboration-hero\) \{[\s\S]*?gap:\s*14px/);
+  assert.match(css, /#settingsContentBody \.peer-collaboration-stack \{[\s\S]*?width:\s*100%/);
   assert.match(css, /#settingsContentBody \.peer-collaboration-invite-form \{[\s\S]*?grid-template-columns:\s*minmax\(0, 200px\) auto/);
   assert.match(css, /#settingsContentBody \.peer-collaboration-connect-form \{/);
   assert.match(css, /#settingsContentBody \.peer-collaboration-connect-actions \{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\) auto/);
+  assert.match(css, /#settingsContentBody \.peer-collaboration-page \{[\s\S]*?gap:\s*16px/);
+  assert.match(css, /#settingsContentBody \.peer-collaboration-item \{/);
+  assert.match(css, /#settingsContentBody \.peer-collaboration-stack-list \{[\s\S]*?gap:\s*12px/);
 });
 
 test("the pairing hero is a switch plus labeled identity rows, not nested stat cards", async () => {
@@ -394,4 +412,58 @@ test("the connect card stacks the invitation code above the name and submit row"
   const submitAt = connect.indexOf("data-peer-connect-submit");
   assert.ok(codeAt > -1 && nameAt > codeAt, "the invitation code sits above the display name");
   assert.ok(submitAt > nameAt, "submit stays beside the display name, not in a third grid hole");
+});
+
+test("invitation and pairing records are inset items, not nested settings cards", async () => {
+  const harness = createHarness({
+    status: statusPayload({
+      invitations: [claimedInvitation()],
+      pairings: [
+        hostPairing(),
+        {
+          ...hostPairing({
+            id: "pairing-9",
+            localRole: "controller",
+            displayName: "Autoto",
+            endpointOrigin: "https://autoto.zhaowo.org",
+            expiresAt: "2026-08-19T19:09:11.618Z",
+          }),
+          grants: [],
+        },
+      ],
+    }),
+  });
+  await harness.controller.load();
+  const html = harness.controller.render();
+  assert.match(html, /peer-collaboration-item/);
+  assert.match(html, /peer-collaboration-stack-list/);
+  assert.doesNotMatch(html, /peer-collaboration-invitation settings-provider-section settings-card/);
+  assert.doesNotMatch(html, /peer-collaboration-pairing settings-provider-section settings-card/);
+  assert.doesNotMatch(html, /2026-08-19T19:09:11/);
+});
+
+test("a controller pairing points at the conversation list instead of empty local grants", async () => {
+  const harness = createHarness({
+    status: statusPayload({
+      pairings: [{
+        pairing: {
+          id: "pairing-c",
+          localRole: "controller",
+          displayName: "Autoto",
+          peerFingerprint,
+          status: "active",
+          scopes: ["observe", "send_task"],
+          endpointOrigin: "https://autoto.example",
+          pairedAt: "2026-08-13T08:15:00Z",
+          createdAt: "2026-08-13T08:15:00Z",
+          updatedAt: "2026-08-13T08:15:00Z",
+        },
+        grants: [],
+      }],
+    }),
+  });
+  await harness.controller.load();
+  const html = harness.controller.render();
+  assert.match(html, /左侧对话列表|左側對話列表|conversation sidebar/);
+  assert.doesNotMatch(html, /对方看不到内容|對方看不到內容|peer sees nothing/);
 });

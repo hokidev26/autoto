@@ -39,6 +39,7 @@ export function createChatComposerController({
   prepareVideoAttachment = processVideoAttachment,
   createAbortController = () => new AbortController(),
   isGuestAccount = () => false,
+  sendPeerMessage = null,
 } = {}) {
   const pendingReasoningEfforts = new Map();
   const savingReasoningEfforts = new Set();
@@ -1236,6 +1237,25 @@ export function createChatComposerController({
     if (isGuestAccount?.()) {
       showToast?.(t("accountSession.guestBanner"), "warn", { force: true });
       return;
+    }
+    if (typeof sendPeerMessage === "function") {
+      const input = $("messageText");
+      const text = String(input?.value || "").trim();
+      const attachments = [...(state.pendingAttachments || [])];
+      let result;
+      try {
+        result = await sendPeerMessage({ text, attachments });
+      } catch (error) {
+        showToast?.(error?.message || String(error), "error");
+        return;
+      }
+      if (result?.handled) {
+        if (result.clearInput && input) {
+          input.value = "";
+          autoResizeMessageInput();
+        }
+        return;
+      }
     }
     if (!state.agent) {
       await openDirectoryChooser();

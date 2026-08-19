@@ -659,6 +659,25 @@ func (s *remoteCollaborationStore) RevokeRemotePeerPairing(ctx context.Context, 
 	return s.transitionRemotePeerPairing(ctx, id, expectedStatus, RemotePeerPairingStatusRevoked, expectedCredentialRevision, false)
 }
 
+// DeleteRemotePeerPairing removes a pairing that is already revoked or expired.
+// Active pairings must be revoked first so live peer tokens are invalidated
+// before the row disappears. Grants cascade with the pairing row.
+func (s *remoteCollaborationStore) DeleteRemotePeerPairing(ctx context.Context, id, expectedStatus string, expectedCredentialRevision int64) error {
+	id, err := normalizeRemoteID("pairing id", id)
+	if err != nil {
+		return err
+	}
+	expectedStatus = strings.TrimSpace(expectedStatus)
+	if expectedStatus != RemotePeerPairingStatusRevoked && expectedStatus != RemotePeerPairingStatusExpired || expectedCredentialRevision < 1 {
+		return errors.New("inactive remote peer pairing expected state is required")
+	}
+	result, err := s.db.ExecContext(ctx, `DELETE FROM remote_peer_pairings WHERE id = ? AND status = ? AND credential_revision = ? AND status IN ('revoked', 'expired')`, id, expectedStatus, expectedCredentialRevision)
+	if err != nil {
+		return fmt.Errorf("delete remote peer pairing: %w", err)
+	}
+	return requireRemoteTransition(result, "delete remote peer pairing")
+}
+
 func (s *remoteCollaborationStore) ExpireRemotePeerPairing(ctx context.Context, id, expectedStatus string, expectedCredentialRevision int64) (RemotePeerPairing, error) {
 	return s.transitionRemotePeerPairing(ctx, id, expectedStatus, RemotePeerPairingStatusExpired, expectedCredentialRevision, true)
 }

@@ -98,3 +98,22 @@ test("the server's placeholder list covers every locale's new-conversation label
     );
   }
 });
+
+test("a remote shared conversation uses the peer title", () => {
+  const helpers = createConversationTitleHelpers({
+    state: { agent: null, project: null, currentMessages: [] },
+    selectedModelValue: () => "",
+    currentModelValue: () => "",
+    projectOperationContextActive: () => false,
+    effectivePermissionForDisplay: () => "",
+    connectionModeSummary: () => ({}),
+    permissionLabel: () => "",
+    renderConversationHeaderIdentity() {},
+    renderWorkbenchHeaderIdentity() {},
+    renderRecentSidebarConversations() {},
+    saveConversationTitle() {},
+    showError() {},
+    peerConversationSummary: () => ({ title: "國鋒專用 修改網站", hostName: "Autoto", scopeLabels: "檢視" }),
+  });
+  assert.equal(helpers.conversationHeaderTitle(), "國鋒專用 修改網站");
+});

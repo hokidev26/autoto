@@ -69,6 +69,7 @@ import { createThemeSettingsController } from "./theme-settings.mjs";
 import { readLocalPreference, recentConversationsKey } from "./preferences-data.mjs";
 import { applyRemoteAccessFailClosed, fullAccessAllowed, remoteAccessContext, terminalAccessAllowed } from "./remote-access-capabilities.mjs";
 import { createPeerCollaborationSettingsController } from "./peer-collaboration-settings.mjs";
+import { createPeerCollaborationWorkspaceController, parsePeerTargetId, peerWorkspaceFetchAllowed } from "./peer-collaboration-workspace.mjs";
 import { createRemoteAccessSettingsController } from "./remote-access-settings.mjs";
 import { createSharedAPISettingsController } from "./shared-api-settings.mjs";
 import { applyServerSkillsLoadResult, createSkillsPhaseBController, hydrateServerSkillSummaries, isOptimisticSkillConflict, loadServerSkillsWithFallback, normalizeSkillContext } from "./skills-bootstrap.mjs";
@@ -176,6 +177,7 @@ function updateSidebarAccountSummary() {
 let skillsPhaseB = null;
 let accountSession = null;
 let userAdminSettings = null;
+let peerCollaborationWorkspace = null;
 let messageViewportBusyTimer = null;
 const messageViewportBusyDelayMs = 140;
 
@@ -519,6 +521,7 @@ const conversationTitleHelpers = createConversationTitleHelpers({
   renderRecentSidebarConversations,
   saveConversationTitle,
   showError,
+  peerConversationSummary: () => peerCollaborationWorkspace?.selectedSummary?.() || null,
 });
 
 const {
@@ -1130,7 +1133,7 @@ const agentStream = createAgentStreamController({
 const navigationRefresh = createNavigationRefreshController({
   refresh: () => loadProjects(),
   shouldRefresh: () => globalThis.navigator?.onLine !== false && globalThis.document?.visibilityState !== "hidden",
-  getIntervalMs: () => openAgentTurnIsLive(state)
+  getIntervalMs: () => (openAgentTurnIsLive(state) || peerCollaborationWorkspace?.selectedIsLive?.())
     ? navigationRefreshDefaults.liveIntervalMs
     : navigationRefreshDefaults.intervalMs,
 });
@@ -1438,6 +1441,21 @@ const chatComposer = createChatComposerController({
   showModelSetupNotice,
   showToast,
   isGuestAccount: () => accountIsGuest(state.account),
+  sendPeerMessage: async ({ text, attachments }) => {
+    if (!peerCollaborationWorkspace?.isSelected()) return { handled: false };
+    if (attachments?.length) {
+      showToast(t("peerCollaboration.attachmentsUnsupported"), "warn", { force: true });
+      return { handled: true, clearInput: false };
+    }
+    if (!peerCollaborationWorkspace.canSend()) {
+      showToast(t("peerCollaboration.observeOnlyToast"), "warn", { force: true });
+      return { handled: true, clearInput: false };
+    }
+    if (!String(text || "").trim()) return { handled: true, clearInput: false };
+    await peerCollaborationWorkspace.sendTask(text);
+    renderPeerConversation({ scroll: true });
+    return { handled: true, clearInput: true };
+  },
   refreshComposerActivityStatus,
   onMessageAccepted: async (result, agentId) => {
     // The POST is acknowledged before the runner necessarily publishes its
@@ -1931,6 +1949,15 @@ const peerCollaborationSettings = createPeerCollaborationSettingsController({
   showError,
   showToast,
   confirmAction: async (message) => platformConfirm(message),
+});
+
+peerCollaborationWorkspace = createPeerCollaborationWorkspaceController({
+  request: api,
+  isAllowed: () => peerWorkspaceFetchAllowed(state),
+  onChange: () => {
+    renderProjects();
+    if (peerCollaborationWorkspace?.isSelected()) renderPeerConversation();
+  },
 });
 
 const sharedAPISettings = createSharedAPISettingsController({
@@ -2926,7 +2953,7 @@ function syncMobilePageTitle() {
     setTextIfChanged(node, selected?.name || t("shell.nav.schedules"));
     return;
   }
-  setTextIfChanged(node, (!state.project && !state.agent) ? t("shell.nav.conversation") : titleForSurface("conversation"));
+  setTextIfChanged(node, peerCollaborationWorkspace?.selectedSummary?.()?.title || ((!state.project && !state.agent) ? t("shell.nav.conversation") : titleForSurface("conversation")));
 }
 
 function renderConversationHeaderIdentityNow() {
@@ -3068,6 +3095,7 @@ async function loadProjects() {
       agentStream.resume({ reason: "navigation-runtime" });
     }
     renderProjects();
+    void peerCollaborationWorkspace?.refresh?.().catch(() => {});
     return navigation;
   } catch (err) {
     if (seq === state.navigationLoadSeq) throw err;
@@ -3586,7 +3614,7 @@ function renderProjects() {
     collapsedNodes: getCollapsedNavNodes(),
     projectOrder: getProjectOrder(),
     seenMap: readSeenMap(),
-  });
+  }) + (taskContext ? "" : peerCollaborationWorkspace?.renderNavigationHTML?.() || "");
   bindConversationDrag(el);
   bindProjectDrag(el);
   el.querySelectorAll("[data-project-id]").forEach((node) => {
@@ -3594,6 +3622,9 @@ function renderProjects() {
   });
   el.querySelectorAll("[data-navigation-target]").forEach((node) => {
     bindNavigationActivation(node, () => selectNavigationConversation(node.dataset.navigationTarget).catch(showError));
+  });
+  el.querySelectorAll("[data-peer-target]").forEach((node) => {
+    bindNavigationActivation(node, () => selectPeerConversation(node.dataset.peerTarget).catch(showError));
   });
   bindNavigationMenuTriggers();
   el.querySelectorAll("[data-navigation-disclosure]").forEach((node) => {
@@ -3747,10 +3778,14 @@ function beginNavigationSelection(project, options = {}) {
   saveCurrentChatDraft();
   hideSlashCommandPalette();
   closeMobileSidebar();
+  if (!options.keepPeerConversation) {
+    peerCollaborationWorkspace?.clearSelection();
+    applyPeerComposerChrome();
+  }
   state.projectCreateSeq++;
   const seq = ++state.projectSelectSeq;
   const previousTitle = conversationHeaderTitle();
-  state.navigationSelectionKind = "project";
+  state.navigationSelectionKind = options.selectionKind === "conversation" ? "conversation" : "project";
   state.navigationTransitionTitle = options.preserveConversationView ? previousTitle : "";
   const preserveChrome = Boolean(options.preserveConversationView);
   disconnectAgentTransports({ keepWorkspaceChrome: preserveChrome });
@@ -3892,6 +3927,73 @@ async function selectProject(id, options = {}) {
 // actually for: put the reader back on it. It repaints the navigation so the row
 // reads as current, scrolls it into view when the click came from somewhere else,
 // and returns focus to the composer. No requests, no transcript rebuild.
+function applyPeerComposerChrome() {
+  const selected = Boolean(peerCollaborationWorkspace?.isSelected());
+  const canSend = Boolean(peerCollaborationWorkspace?.canSend());
+  document.body.classList.toggle("peer-conversation", selected);
+  document.body.classList.toggle("peer-conversation-readonly", selected && !canSend);
+  const input = $("messageText");
+  if (!input) return;
+  if (selected) {
+    input.placeholder = t(canSend ? "peerCollaboration.sendPlaceholder" : "peerCollaboration.observeOnlyPlaceholder");
+    input.disabled = !canSend;
+    return;
+  }
+  input.placeholder = t("chat.messagePlaceholder");
+}
+
+function renderPeerConversation({ scroll = false } = {}) {
+  const el = $("messages");
+  if (!el || !peerCollaborationWorkspace?.isSelected()) return;
+  el.classList.remove("empty");
+  el.removeAttribute("aria-busy");
+  delete el.dataset.initialChatState;
+  setHTMLIfChanged(el, peerCollaborationWorkspace.renderTranscriptHTML());
+  peerCollaborationWorkspace.bindTranscript(el, {
+    onApprove: async (approvalId, decision) => {
+      await peerCollaborationWorkspace.resolveApproval(approvalId, decision);
+      renderPeerConversation();
+    },
+  });
+  applyPeerComposerChrome();
+  renderConversationHeaderIdentity();
+  updateWorkspaceMetaPills();
+  if (scroll) scrollMessagesToBottom();
+}
+
+async function selectPeerConversation(targetId) {
+  const parsed = parsePeerTargetId(targetId);
+  if (!parsed) return;
+  if (state.overviewActive || state.activeWorkbench !== "conversation") switchPrimaryWorkbench("conversation");
+  if (peerCollaborationWorkspace?.selectedTargetId() === parsed.targetId && $("messages")?.querySelector?.(".peer-collaboration-transcript-banner")) {
+    renderProjects();
+    $("messageText")?.focus?.({ preventScroll: true });
+    return;
+  }
+  const seq = beginNavigationSelection(null, { keepPeerConversation: true, selectionKind: "conversation" });
+  if (seq == null) return;
+  peerCollaborationWorkspace.select(parsed);
+  applyPeerComposerChrome();
+  markMessageViewportBusy();
+  state.chatHydrating = true;
+  try {
+    await peerCollaborationWorkspace.refresh({ force: true });
+    if (seq !== state.projectSelectSeq) return;
+    state.chatHydrating = false;
+    clearMessageViewportBusy();
+    renderPeerConversation({ scroll: true });
+    renderProjects();
+    setComposerConnectionStatus(t("peerCollaboration.composerStatus"), true);
+    $("messageText")?.focus?.({ preventScroll: true });
+  } catch (error) {
+    if (seq === state.projectSelectSeq) {
+      state.chatHydrating = false;
+      clearMessageViewportBusy();
+      throw error;
+    }
+  }
+}
+
 function focusOpenConversation(agentId) {
   rememberCurrentConversation();
   renderProjects();
@@ -4761,6 +4863,8 @@ window.addEventListener("autoto:auth-changed", () => {
   disconnectAgentTransports();
   closeWorkspace();
   closeConversationDetails();
+  peerCollaborationWorkspace?.clearSelection();
+  applyPeerComposerChrome();
   state.project = null;
   state.workline = null;
   state.agent = null;

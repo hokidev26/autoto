@@ -25,6 +25,7 @@ export function createConversationTitleHelpers({
   renderRecentSidebarConversations,
   saveConversationTitle,
   showError,
+  peerConversationSummary = () => null,
 }) {
   function currentWorkspaceModel() {
     return state.agent?.model || selectedModelValue() || currentModelValue() || am("noModelSelected");
@@ -64,6 +65,8 @@ export function createConversationTitleHelpers({
   }
 
   function conversationHeaderTitle() {
+    const peer = peerConversationSummary?.();
+    if (peer?.title) return peer.title;
     // A conversation with nothing in it yet has nothing to derive a title from,
     // and the project path is not a useful heading, so it reads as new until the
     // first message arrives.
@@ -130,6 +133,16 @@ export function createConversationTitleHelpers({
   function updateWorkspaceMetaPills() {
     const el = $("workspaceMetaPills");
     if (!el) return;
+    const peer = peerConversationSummary?.();
+    if (peer?.title) {
+      setHTMLIfChanged(el, `
+        <span class="workspace-pill">${escapeHtml(t("peerCollaboration.composerStatus"))}</span>
+        ${peer.hostName ? `<span class="workspace-pill" title="${escapeAttr(peer.hostName)}">${escapeHtml(peer.hostName)}</span>` : ""}
+        ${peer.scopeLabels ? `<span class="workspace-pill">${escapeHtml(peer.scopeLabels)}</span>` : ""}
+      `);
+      el.classList.remove("hidden");
+      return;
+    }
     if (!state.project && !state.agent) {
       el.classList.add("hidden");
       setHTMLIfChanged(el, "");

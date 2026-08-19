@@ -2497,3 +2497,34 @@ test("an image parked with no text is accepted and labelled", () => {
     globalThis.document = previousDocument;
   }
 });
+
+test("a peer send intercepts before opening a local directory", async () => {
+  const previousDocument = globalThis.document;
+  const input = { value: "請繼續改網站", style: {}, scrollHeight: 46 };
+  globalThis.document = {
+    getElementById(id) {
+      if (id === "messageText") return input;
+      return null;
+    },
+  };
+  globalThis.getComputedStyle = () => ({ minHeight: "46px", maxHeight: "128px", getPropertyValue() { return ""; } });
+  let opened = 0;
+  let sent = "";
+  try {
+    const controller = createChatComposerController({
+      state: { agent: null, pendingAttachments: [] },
+      openDirectoryChooser: async () => { opened += 1; },
+      sendPeerMessage: async ({ text }) => {
+        sent = text;
+        return { handled: true, clearInput: true };
+      },
+      showToast() {},
+    });
+    await controller.sendMessage({ preventDefault() {} });
+    assert.equal(opened, 0);
+    assert.equal(sent, "請繼續改網站");
+    assert.equal(input.value, "");
+  } finally {
+    globalThis.document = previousDocument;
+  }
+});

@@ -155,6 +155,21 @@ func TestRemotePairingClaimApproveAndRevoke(t *testing.T) {
 	if revoked.Status != RemotePeerPairingStatusRevoked || revoked.CredentialRevision != pairing.CredentialRevision+1 || revoked.RevokedAt == "" {
 		t.Fatalf("unexpected revoked pairing: %+v", revoked)
 	}
+	if err := store.DeleteRemotePeerPairing(ctx, revoked.ID, RemotePeerPairingStatusActive, revoked.CredentialRevision); err == nil || !strings.Contains(err.Error(), "inactive remote peer pairing") {
+		t.Fatalf("active expected status was accepted: %v", err)
+	}
+	if err := store.DeleteRemotePeerPairing(ctx, revoked.ID, revoked.Status, revoked.CredentialRevision+1); !IsConflict(err) {
+		t.Fatalf("expected delete revision conflict, got %v", err)
+	}
+	if err := store.DeleteRemotePeerPairing(ctx, revoked.ID, revoked.Status, revoked.CredentialRevision); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.GetRemotePeerPairing(ctx, revoked.ID); !IsNotFound(err) {
+		t.Fatalf("deleted pairing still readable: %v", err)
+	}
+	if _, err := store.GetRemotePeerGrant(ctx, revoked.ID, agent.ID); !IsNotFound(err) {
+		t.Fatalf("deleted pairing grants still readable: %v", err)
+	}
 }
 
 func TestRemotePairingRevisionConflicts(t *testing.T) {
@@ -189,6 +204,9 @@ func TestRemotePairingRevisionConflicts(t *testing.T) {
 	}
 	if _, err := store.RevokeRemotePeerPairing(ctx, pairing.ID, pairing.Status, pairing.CredentialRevision+1); !IsConflict(err) {
 		t.Fatalf("expected pairing revision conflict, got %v", err)
+	}
+	if err := store.DeleteRemotePeerPairing(ctx, pairing.ID, RemotePeerPairingStatusRevoked, pairing.CredentialRevision); !IsConflict(err) {
+		t.Fatalf("expected active pairing delete conflict, got %v", err)
 	}
 }
 

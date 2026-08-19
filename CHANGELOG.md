@@ -11,6 +11,7 @@ All notable changes to Autoto are tracked here. The project is still an experime
 - Settings → Usage history now has today / 7-day / 30-day / month presets, chart vs records tabs, a stacked provider bar for count and token metrics, grouped usage/performance summaries, and CSV export of the currently loaded rows. Average latency still uses the line chart. Provider names are not truncated, and credentials stay off the page.
 - Plan-mode drafts now go through an isolated reviewer that must return `needs_human` when the plan itself admits the goal was not achieved. That verdict automatically starts one more plan-mode run with the reviewer's correction unless plan reflection is turned off on that conversation (default on; on/off under plan mode in the permission menu); a second `needs_human`, `pass`, `unavailable`, or `block_recommended` still waits for a human. Reviewer pass is still not approval and never creates an execute run.
 - Model settings now include a plan-review model. Leave it blank to follow the active conversation; if a dedicated reviewer cannot be resolved or is not configured, review also uses that conversation model.
+- Shared remote conversations now appear in the controller's conversation sidebar. Opening one shows the host's redacted transcript and can send tasks or approvals through the existing peer proxies; remote agent ids never enter local `/api/agents` routes.
 
 ### Changed
 
@@ -44,7 +45,10 @@ All notable changes to Autoto are tracked here. The project is still an experime
 
 ### Fixed
 
-- Shared conversations show each sender's display name and handle on user messages. The previous behavior painted every user turn with the viewer's own profile, so two people reading the same thread saw different names.
+- The remote-collaboration pairing card no longer leaves a blank second column beside the sharing switch and fingerprint.
+- The conversation sidebar keeps a Remote collaboration section visible on the controller, even before a pairing has shared any agents.
+- Revoked and expired remote-collaboration pairings can be deleted from settings so inactive records do not accumulate. Active pairings still have to be revoked first.
+- The “N steps” activity disclosure keeps its chevron off until hover or keyboard focus, and then shows it on the right instead of the left.
 - Saving project access or a role in Settings → Users now shows a success toast. The save previously reloaded the page with no feedback.
 - Sending a message no longer treats a still-loading model catalog as “not configured”, which replaced the transcript with a setup card collaborators cannot open.
 - The composer’s running-task panel uses the same permission-mode list and remote cap as the main permission control, so **Allow all** is remote-disabled there too until the host allows full remote access.

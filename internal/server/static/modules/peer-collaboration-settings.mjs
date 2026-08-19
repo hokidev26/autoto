@@ -1,5 +1,6 @@
 import { objectValue } from "./value-coercion.mjs";
 import { escapeAttr, escapeHtml, setButtonBusy } from "./dom.mjs";
+import { formatTimestamp } from "./formatters.mjs";
 import { t } from "./i18n.mjs";
 import { qrToSvg } from "./qrcode.mjs";
 
@@ -16,6 +17,11 @@ const invitationTTLChoices = Object.freeze([600, 1800, 3600]);
 function textValue(value, fallback = "") {
   const text = String(value ?? "").trim();
   return text || fallback;
+}
+
+function formatPeerInstant(value) {
+  const text = textValue(value);
+  return text ? formatTimestamp(text) : "";
 }
 
 function positiveInteger(value) {
@@ -308,6 +314,19 @@ export function createPeerCollaborationSettingsController({
     await load();
   }
 
+  async function deletePairing(id) {
+    const current = pairing(id);
+    if (!current) throw new Error(rt("pairingMissing"));
+    await request(`${endpoint}/pairings/${encodeURIComponent(id)}/delete`, {
+      method: "POST",
+      body: JSON.stringify({ status: current.status, credentialRevision: current.credentialRevision }),
+    });
+    authorizationDrafts.delete(id);
+    if (openAuthorization === id) openAuthorization = "";
+    showToast?.(rt("pairingDeletedToast"));
+    await load();
+  }
+
   async function connectPeer(invitationCode, displayName) {
     const code = textValue(invitationCode);
     if (!code) throw new Error(rt("connectCodeRequired"));
@@ -439,9 +458,9 @@ export function createPeerCollaborationSettingsController({
       qr = `<p class="settings-card-description">${escapeHtml(rt("qrUnavailable"))}</p>`;
     }
     return `
-      <div class="peer-collaboration-created settings-inline-alert" role="status">
+      <div class="peer-collaboration-created peer-collaboration-item" role="status">
         <strong>${escapeHtml(rt("invitationReady"))}</strong>
-        <p class="settings-card-description">${escapeHtml(rt("invitationReadyHint", { expiresAt: createdInvitation.expiresAt || "" }))}</p>
+        <p class="settings-card-description">${escapeHtml(rt("invitationReadyHint", { expiresAt: formatPeerInstant(createdInvitation.expiresAt) || createdInvitation.expiresAt || "" }))}</p>
         ${qr}
         <code class="peer-collaboration-code">${escapeHtml(createdInvitation.encodedInvitation)}</code>
         <div class="settings-action-row">
@@ -456,13 +475,13 @@ export function createPeerCollaborationSettingsController({
     const approvable = item.status === "claimed";
     const editing = openApproval === item.id;
     return `
-      <div class="peer-collaboration-invitation settings-provider-section settings-card" data-peer-invitation="${escapeAttr(item.id)}">
+      <div class="peer-collaboration-invitation peer-collaboration-item" data-peer-invitation="${escapeAttr(item.id)}">
         <div class="settings-provider-section-head settings-card-header">
           <div>
             <div class="settings-provider-title settings-card-title">${escapeHtml(item.requesterDisplayName || rt("awaitingRequester"))}</div>
             <div class="settings-provider-meta settings-card-description">${escapeHtml(rt("invitationMeta", {
               fingerprint: item.requesterFingerprint ? item.requesterFingerprint.slice(0, 12) : "—",
-              expiresAt: item.expiresAt || "—",
+              expiresAt: formatPeerInstant(item.expiresAt) || item.expiresAt || "—",
             }))}</div>
           </div>
           <span class="settings-status-pill settings-badge ${item.status === "approved" ? "ok" : actionable ? "" : "warn"}">${escapeHtml(rt(`invitationStatus.${item.status}`))}</span>
@@ -482,25 +501,27 @@ export function createPeerCollaborationSettingsController({
   function renderPairing(item) {
     const editing = openAuthorization === item.id;
     const active = item.status === "active";
-    const grants = item.grants.length
-      ? `<ul class="peer-collaboration-grant-list">${item.grants.map((grant) => `<li>${escapeHtml(agentLabel(grant.agentId))} — ${escapeHtml(rt(`cap.${grant.permissionModeCap}`))}${grant.scopes.length ? ` · ${escapeHtml(grant.scopes.map(scopeLabel).join(", "))}` : ""}</li>`).join("")}</ul>`
-      : `<p class="settings-card-description">${escapeHtml(rt("pairingNoGrants"))}</p>`;
+    const grants = item.localRole === "controller"
+      ? `<p class="settings-card-description">${escapeHtml(rt("controllerGrantsHint"))}</p>`
+      : item.grants.length
+        ? `<ul class="peer-collaboration-grant-list">${item.grants.map((grant) => `<li>${escapeHtml(agentLabel(grant.agentId))} — ${escapeHtml(rt(`cap.${grant.permissionModeCap}`))}${grant.scopes.length ? ` · ${escapeHtml(grant.scopes.map(scopeLabel).join(", "))}` : ""}</li>`).join("")}</ul>`
+        : `<p class="settings-card-description">${escapeHtml(rt("pairingNoGrants"))}</p>`;
     return `
-      <div class="peer-collaboration-pairing settings-provider-section settings-card" data-peer-pairing="${escapeAttr(item.id)}">
+      <div class="peer-collaboration-pairing peer-collaboration-item" data-peer-pairing="${escapeAttr(item.id)}">
         <div class="settings-provider-section-head settings-card-header">
           <div>
             <div class="settings-provider-title settings-card-title">${escapeHtml(item.displayName || item.id)}</div>
             <div class="settings-provider-meta settings-card-description">${escapeHtml(rt("pairingMeta", {
               role: rt(`role.${item.localRole}`),
               fingerprint: item.peerFingerprint ? item.peerFingerprint.slice(0, 12) : "—",
-              lastSeenAt: item.lastSeenAt || rt("neverSeen"),
+              lastSeenAt: formatPeerInstant(item.lastSeenAt) || rt("neverSeen"),
             }))}</div>
           </div>
           <span class="settings-status-pill settings-badge ${active ? "ok" : "warn"}">${escapeHtml(rt(`pairingStatus.${item.status}`))}</span>
         </div>
         <div class="settings-stat-grid peer-collaboration-pairing-stats">
           <div class="settings-stat-card"><strong>${escapeHtml(item.scopes.length ? item.scopes.map(scopeLabel).join(", ") : rt("noScopes"))}</strong><span>${escapeHtml(rt("pairingScopes"))}</span></div>
-          <div class="settings-stat-card"><strong>${escapeHtml(item.expiresAt || rt("noExpiry"))}</strong><span>${escapeHtml(rt("expiresAt"))}</span></div>
+          <div class="settings-stat-card"><strong>${escapeHtml(formatPeerInstant(item.expiresAt) || rt("noExpiry"))}</strong><span>${escapeHtml(rt("expiresAt"))}</span></div>
           ${item.endpointOrigin ? `<div class="settings-stat-card"><strong>${escapeHtml(item.endpointOrigin)}</strong><span>${escapeHtml(rt("endpointOrigin"))}</span></div>` : ""}
         </div>
         ${grants}
@@ -508,15 +529,15 @@ export function createPeerCollaborationSettingsController({
         <div class="settings-action-row settings-card-footer">
           <span class="settings-provider-meta">${escapeHtml(item.localRole === "host" ? rt("hostPairingHint") : rt("controllerPairingHint"))}</span>
           ${active && item.localRole === "host" && !editing ? `<button class="settings-action-btn primary" type="button" data-peer-action="open-auth" data-peer-id="${escapeAttr(item.id)}">${escapeHtml(rt("editAuthorization"))}</button>` : ""}
-          ${active ? `<button class="settings-action-btn subtle" type="button" data-peer-action="revoke-pairing" data-peer-id="${escapeAttr(item.id)}">${escapeHtml(rt("revokePairing"))}</button>` : ""}
+          ${active ? `<button class="settings-action-btn subtle" type="button" data-peer-action="revoke-pairing" data-peer-id="${escapeAttr(item.id)}">${escapeHtml(rt("revokePairing"))}</button>` : `<button class="settings-action-btn subtle" type="button" data-peer-action="delete-pairing" data-peer-id="${escapeAttr(item.id)}">${escapeHtml(rt("deletePairing"))}</button>`}
         </div>
       </div>`;
   }
 
   function renderPendingClaims() {
     if (!pendingClaims.size) return "";
-    return Array.from(pendingClaims.entries()).map(([id, claim]) => `
-      <div class="peer-collaboration-claim settings-inline-alert" role="status">
+    return `<div class="peer-collaboration-stack-list">${Array.from(pendingClaims.entries()).map(([id, claim]) => `
+      <div class="peer-collaboration-claim peer-collaboration-item" role="status">
         <strong>${escapeHtml(rt("claimPending"))}</strong>
         <p class="settings-card-description">${escapeHtml(rt("claimPendingHint", {
           origin: claim.origin,
@@ -526,7 +547,7 @@ export function createPeerCollaborationSettingsController({
         <div class="settings-action-row">
           <button class="settings-action-btn primary" type="button" data-peer-action="poll-claim" data-peer-id="${escapeAttr(id)}">${escapeHtml(rt("pollClaim"))}</button>
         </div>
-      </div>`).join("");
+      </div>`).join("")}</div>`;
   }
 
   function render() {
@@ -604,7 +625,7 @@ export function createPeerCollaborationSettingsController({
               <div class="settings-provider-meta settings-card-description">${escapeHtml(rt("invitationsDescription"))}</div>
             </div>
           </div>
-          ${invitations.length ? invitations.map(renderInvitation).join("") : `<p class="settings-card-description">${escapeHtml(rt("invitationsEmpty"))}</p>`}
+          ${invitations.length ? `<div class="peer-collaboration-stack-list">${invitations.map(renderInvitation).join("")}</div>` : `<p class="settings-card-description peer-collaboration-empty">${escapeHtml(rt("invitationsEmpty"))}</p>`}
         </section>
         <section class="settings-provider-section settings-page-section settings-card">
           <div class="settings-provider-section-head settings-card-header">
@@ -613,7 +634,7 @@ export function createPeerCollaborationSettingsController({
               <div class="settings-provider-meta settings-card-description">${escapeHtml(rt("hostPairingsDescription"))}</div>
             </div>
           </div>
-          ${hostPairings.length ? hostPairings.map(renderPairing).join("") : `<p class="settings-card-description">${escapeHtml(rt("hostPairingsEmpty"))}</p>`}
+          ${hostPairings.length ? `<div class="peer-collaboration-stack-list">${hostPairings.map(renderPairing).join("")}</div>` : `<p class="settings-card-description peer-collaboration-empty">${escapeHtml(rt("hostPairingsEmpty"))}</p>`}
         </section>
         <section class="settings-provider-section settings-page-section settings-card">
           <div class="settings-provider-section-head settings-card-header">
@@ -634,7 +655,7 @@ export function createPeerCollaborationSettingsController({
             </div>
           </form>
           ${renderPendingClaims()}
-          ${controllerPairings.length ? controllerPairings.map(renderPairing).join("") : `<p class="settings-card-description">${escapeHtml(rt("controllerPairingsEmpty"))}</p>`}
+          ${controllerPairings.length ? `<div class="peer-collaboration-stack-list">${controllerPairings.map(renderPairing).join("")}</div>` : `<p class="settings-card-description peer-collaboration-empty">${escapeHtml(rt("controllerPairingsEmpty"))}</p>`}
         </section>
       </div>`;
   }
@@ -732,6 +753,12 @@ export function createPeerCollaborationSettingsController({
         const confirmed = confirmAction ? await confirmAction(rt("revokePairingConfirm")) : true;
         if (!confirmed) return;
         await revokePairing(id);
+        return;
+      }
+      case "delete-pairing": {
+        const confirmed = confirmAction ? await confirmAction(rt("deletePairingConfirm")) : true;
+        if (!confirmed) return;
+        await deletePairing(id);
         return;
       }
       case "poll-claim":
@@ -857,6 +884,7 @@ export function createPeerCollaborationSettingsController({
     pollClaim,
     render,
     revokePairing,
+    deletePairing,
     saveAuthorization,
     setSharing,
     transitionInvitation,

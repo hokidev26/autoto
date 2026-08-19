@@ -105,6 +105,7 @@ func (s *Server) mountRemoteCollaborationRoutes(router chi.Router) {
 		router.Post("/invitations/{id}/revoke", s.revokeRemoteCollaborationInvitation)
 		router.Put("/pairings/{id}/authorization", s.replaceRemoteCollaborationAuthorization)
 		router.Post("/pairings/{id}/revoke", s.revokeRemoteCollaborationPairing)
+		router.Post("/pairings/{id}/delete", s.deleteRemoteCollaborationPairing)
 		router.Post("/connect", s.connectRemoteCollaborationPeer)
 		router.Post("/claims/{id}/poll", s.pollRemoteCollaborationClaim)
 		router.Get("/peers/{id}/snapshot", s.proxyRemoteCollaborationSnapshot)
@@ -387,6 +388,37 @@ func (s *Server) revokeRemoteCollaborationPairing(w http.ResponseWriter, r *http
 	_ = runtime.manager.InvalidatePairing(pairingID)
 	runtime.removeClient(pairingID)
 	writeJSON(w, http.StatusOK, pairing)
+}
+
+func (s *Server) deleteRemoteCollaborationPairing(w http.ResponseWriter, r *http.Request) {
+	runtime, ok := s.requireRemoteCollaborationRuntime(w)
+	if !ok {
+		return
+	}
+	var request revokeRemoteCollaborationPairingRequest
+	if err := decodePeerJSON(w, r, &request); err != nil {
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
+		return
+	}
+	if request.Status != db.RemotePeerPairingStatusRevoked && request.Status != db.RemotePeerPairingStatusExpired {
+		s.writeRequestError(w, r, http.StatusBadRequest, errors.New("only revoked or expired pairings can be deleted"))
+		return
+	}
+	pairingID := chi.URLParam(r, "id")
+	if err := s.recordRequiredPeerAudit(r.Context(), audit.Event{
+		Category: "peer", Action: "pairing.delete", Actor: "local-api", SubjectType: "peer_pairing", SubjectID: pairingID,
+		Outcome: "success", Risk: "high", Details: map[string]any{"revision": request.CredentialRevision, "status": request.Status},
+	}); err != nil {
+		writeError(w, http.StatusInternalServerError, "pairing was not deleted because audit persistence failed")
+		return
+	}
+	if err := s.store.DeleteRemotePeerPairing(r.Context(), pairingID, request.Status, request.CredentialRevision); err != nil {
+		s.writeStoreError(w, r, err)
+		return
+	}
+	_ = runtime.manager.InvalidatePairing(pairingID)
+	runtime.removeClient(pairingID)
+	writeJSON(w, http.StatusOK, map[string]any{"deleted": true, "id": pairingID})
 }
 
 type connectRemoteCollaborationPeerRequest struct {
