@@ -3386,7 +3386,9 @@ body.white-shell.theme-light .background-task-bubble.role-assistant .message-rol
   .remote-access-summary-grid { grid-template-columns: 1fr; }
   .remote-access-tunnel-card .settings-action-row,
   .peer-collaboration-invitation .settings-action-row,
-  .peer-collaboration-pairing .settings-action-row { flex-direction: column; align-items: stretch; }
+  .peer-collaboration-pairing .settings-action-row,
+  .peer-collaboration-item-foot,
+  .peer-collaboration-item-tools { flex-direction: column; align-items: stretch; }
   .remote-access-tunnel-action,
   .peer-collaboration-invitation .settings-action-btn,
   .peer-collaboration-pairing .settings-action-btn { width: 100%; }
@@ -3401,20 +3403,30 @@ body.white-shell.theme-light .background-task-bubble.role-assistant .message-rol
 /* Peer collaboration — pairing invitations, grants and scope editors */
 #settingsContentBody .peer-collaboration-page > section.settings-card:not(.peer-collaboration-hero) {
   display: grid;
-  gap: 14px;
+  gap: 16px;
   align-content: start;
 }
 #settingsContentBody .peer-collaboration-page > section.settings-card > :is(.settings-card-header, .settings-provider-section-head) {
   margin-bottom: 0;
 }
+/* Desktop flattening zeros .settings-live-page gap. List spacing has to live on
+   the items themselves: sibling margin still separates block children if a later
+   rule turns this grid back into a stacked block. */
+#settingsContentBody .peer-collaboration-created {
+  margin-top: 16px;
+}
 #settingsContentBody .peer-collaboration-stack-list {
-  display: grid;
-  gap: 12px;
+  display: flex;
+  flex-direction: column;
+}
+#settingsContentBody .peer-collaboration-stack-list > .peer-collaboration-item + .peer-collaboration-item {
+  margin-top: 16px;
 }
 #settingsContentBody .peer-collaboration-item {
   display: grid;
   gap: 12px;
   min-width: 0;
+  overflow: visible;
   padding: 12px 14px;
   border: 1px solid var(--settings-border, #dfe3ea);
   border-radius: 12px;
@@ -3424,8 +3436,31 @@ body.white-shell.theme-light .background-task-bubble.role-assistant .message-rol
 #settingsContentBody .peer-collaboration-item > :is(.settings-card-header, .settings-provider-section-head) {
   margin-bottom: 0;
 }
-#settingsContentBody .peer-collaboration-item > .settings-card-footer {
+#settingsContentBody .peer-collaboration-item-tools {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  max-width: 100%;
+}
+#settingsContentBody .peer-collaboration-item-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
   margin-top: 2px;
+}
+#settingsContentBody .peer-collaboration-item-hint {
+  min-width: 0;
+  flex: 1 1 12rem;
+  margin: 0;
+  color: var(--settings-muted-foreground, #64748b);
+  font-size: 12px;
+  line-height: 1.45;
 }
 #settingsContentBody .peer-collaboration-empty {
   margin: 0;

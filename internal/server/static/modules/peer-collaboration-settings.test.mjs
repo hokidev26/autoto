@@ -263,8 +263,10 @@ test("deleting a revoked pairing sends the inactive status and credential revisi
   });
   await harness.controller.load();
   const html = harness.controller.render();
-  assert.match(html, /data-peer-action="delete-pairing"/);
+  assert.match(html, /peer-collaboration-item-tools[\s\S]*data-peer-action="delete-pairing"/);
+  assert.match(html, /settings-action-btn danger[\s\S]*data-peer-action="delete-pairing"/);
   assert.doesNotMatch(html, /data-peer-action="revoke-pairing"/);
+  assert.doesNotMatch(html, /settings-card-footer[\s\S]*data-peer-action="delete-pairing"/);
   await harness.controller.deletePairing("pairing-1");
   const removed = harness.requests.find((entry) => entry.path.endsWith("/pairings/pairing-1/delete"));
   assert.deepEqual(removed.body, { status: "revoked", credentialRevision: 3 });
@@ -367,14 +369,18 @@ test("peer collaboration cards share the settings-network panel container", asyn
   assert.match(css, /@container settings-network-page \(max-width: 759px\)[\s\S]*?\.peer-collaboration-qr/);
   assert.match(css, /#settingsContentBody \.peer-collaboration-page \.settings-hero-card[\s\S]*?flex-direction:\s*column/);
   assert.match(css, /#settingsContentBody \.peer-collaboration-page > section\.peer-collaboration-hero/);
-  assert.match(css, /#settingsContentBody \.peer-collaboration-page > section\.settings-card:not\(\.peer-collaboration-hero\) \{[\s\S]*?gap:\s*14px/);
+  assert.match(css, /#settingsContentBody \.peer-collaboration-page > section\.settings-card:not\(\.peer-collaboration-hero\) \{[\s\S]*?gap:\s*16px/);
   assert.match(css, /#settingsContentBody \.peer-collaboration-stack \{[\s\S]*?width:\s*100%/);
   assert.match(css, /#settingsContentBody \.peer-collaboration-invite-form \{[\s\S]*?grid-template-columns:\s*minmax\(0, 200px\) auto/);
   assert.match(css, /#settingsContentBody \.peer-collaboration-connect-form \{/);
   assert.match(css, /#settingsContentBody \.peer-collaboration-connect-actions \{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\) auto/);
   assert.match(css, /#settingsContentBody \.peer-collaboration-page \{[\s\S]*?gap:\s*16px/);
   assert.match(css, /#settingsContentBody \.peer-collaboration-item \{/);
-  assert.match(css, /#settingsContentBody \.peer-collaboration-stack-list \{[\s\S]*?gap:\s*12px/);
+  assert.match(css, /#settingsContentBody \.peer-collaboration-created \{[\s\S]*?margin-top:\s*16px/);
+  assert.match(css, /#settingsContentBody \.peer-collaboration-stack-list \{[\s\S]*?flex-direction:\s*column/);
+  assert.match(css, /#settingsContentBody \.peer-collaboration-stack-list > \.peer-collaboration-item \+ \.peer-collaboration-item \{[\s\S]*?margin-top:\s*16px/);
+  assert.match(css, /#settingsContentBody \.peer-collaboration-item-tools \{/);
+  assert.match(css, /#settingsContentBody \.peer-collaboration-item-foot \{/);
 });
 
 test("the pairing hero is a switch plus labeled identity rows, not nested stat cards", async () => {

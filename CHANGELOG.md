@@ -48,6 +48,7 @@ All notable changes to Autoto are tracked here. The project is still an experime
 - The remote-collaboration pairing card no longer leaves a blank second column beside the sharing switch and fingerprint.
 - The conversation sidebar keeps a Remote collaboration section visible on the controller, even before a pairing has shared any agents.
 - Revoked and expired remote-collaboration pairings can be deleted from settings so inactive records do not accumulate. Active pairings still have to be revoked first.
+- Settings → Remote collaboration keeps a gap between the generate-invitation row and the invitation-code card, and between stacked pairing records. The delete control for a revoked pairing sits next to the status badge.
 - The “N steps” activity disclosure keeps its chevron off until hover or keyboard focus, and then shows it on the right instead of the left.
 - Saving project access or a role in Settings → Users now shows a success toast. The save previously reloaded the page with no feedback.
 - Sending a message no longer treats a still-loading model catalog as “not configured”, which replaced the transcript with a setup card collaborators cannot open.

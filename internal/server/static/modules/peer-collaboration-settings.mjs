@@ -517,7 +517,10 @@ export function createPeerCollaborationSettingsController({
               lastSeenAt: formatPeerInstant(item.lastSeenAt) || rt("neverSeen"),
             }))}</div>
           </div>
-          <span class="settings-status-pill settings-badge ${active ? "ok" : "warn"}">${escapeHtml(rt(`pairingStatus.${item.status}`))}</span>
+          <div class="peer-collaboration-item-tools">
+            <span class="settings-status-pill settings-badge ${active ? "ok" : "warn"}">${escapeHtml(rt(`pairingStatus.${item.status}`))}</span>
+            ${active ? "" : `<button class="settings-action-btn danger" type="button" data-peer-action="delete-pairing" data-peer-id="${escapeAttr(item.id)}">${escapeHtml(rt("deletePairing"))}</button>`}
+          </div>
         </div>
         <div class="settings-stat-grid peer-collaboration-pairing-stats">
           <div class="settings-stat-card"><strong>${escapeHtml(item.scopes.length ? item.scopes.map(scopeLabel).join(", ") : rt("noScopes"))}</strong><span>${escapeHtml(rt("pairingScopes"))}</span></div>
@@ -526,10 +529,10 @@ export function createPeerCollaborationSettingsController({
         </div>
         ${grants}
         ${editing ? renderAuthorizationEditor("authorization", item.id, authorizationDraft(item.id), { submitAction: "save-auth", submitLabel: rt("saveAuthorization") }) : ""}
-        <div class="settings-action-row settings-card-footer">
-          <span class="settings-provider-meta">${escapeHtml(item.localRole === "host" ? rt("hostPairingHint") : rt("controllerPairingHint"))}</span>
+        <div class="peer-collaboration-item-foot">
+          <span class="peer-collaboration-item-hint">${escapeHtml(active ? (item.localRole === "host" ? rt("hostPairingHint") : rt("controllerPairingHint")) : rt("inactivePairingHint"))}</span>
           ${active && item.localRole === "host" && !editing ? `<button class="settings-action-btn primary" type="button" data-peer-action="open-auth" data-peer-id="${escapeAttr(item.id)}">${escapeHtml(rt("editAuthorization"))}</button>` : ""}
-          ${active ? `<button class="settings-action-btn subtle" type="button" data-peer-action="revoke-pairing" data-peer-id="${escapeAttr(item.id)}">${escapeHtml(rt("revokePairing"))}</button>` : `<button class="settings-action-btn subtle" type="button" data-peer-action="delete-pairing" data-peer-id="${escapeAttr(item.id)}">${escapeHtml(rt("deletePairing"))}</button>`}
+          ${active ? `<button class="settings-action-btn subtle" type="button" data-peer-action="revoke-pairing" data-peer-id="${escapeAttr(item.id)}">${escapeHtml(rt("revokePairing"))}</button>` : ""}
         </div>
       </div>`;
   }

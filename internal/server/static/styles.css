@@ -5,7 +5,7 @@
 @import url("styles/workspace.css");
 @import url("styles/settings-legacy.css");
 @import url("styles/white-shell.css");
-@import url("styles/workbench-shell.css?c=face-eyes");
+@import url("styles/workbench-shell.css?c=peer-gap");
 @import url("styles/workbench-desktop.css");
 @import url("styles/workbench-conversation.css");
 @import url("styles/workbench-composer.css");
@@ -16,4 +16,4 @@
 @import url("styles/providers-create.css");
 @import url("styles/providers-reference.css");
 @import url("styles/workspace-tasks.css");
-@import url("styles/extras.css?c=face-eyes");
+@import url("styles/extras.css?c=peer-gap");
