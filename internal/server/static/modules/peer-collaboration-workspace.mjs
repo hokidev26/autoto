@@ -52,6 +52,8 @@ export function normalizePeerSnapshot(value = {}, pairingId = "") {
       return {
         id: agentId,
         name: textValue(agent?.name, agentId),
+        model: textValue(agent?.model),
+        reasoningEffort: textValue(agent?.reasoningEffort),
         permissionModeCap: textValue(agent?.permissionModeCap, "readOnly"),
         status: textValue(agent?.status, "idle"),
         planMode: Boolean(agent?.planMode),
@@ -110,6 +112,8 @@ export function collectPeerConversations(hosts = []) {
           projectName: project.name,
           agentId: agent.id,
           title: agent.name,
+          model: agent.model,
+          reasoningEffort: agent.reasoningEffort,
           status: agent.status,
           scopes: agent.scopes,
           permissionModeCap: agent.permissionModeCap,
@@ -204,15 +208,19 @@ export function renderPeerTranscriptHTML({ conversation, snapshot, error = "" } 
   const messageHTML = messages.length
     ? messages.map((message) => {
       const user = message.role === "user";
-      const alignment = user ? "right" : "left";
+      const alignment = "left";
       const roleClass = user ? "user" : "assistant";
+      const userLabel = t("peerCollaboration.remoteUser");
       const time = message.createdAt
         ? `<time class="message-time" datetime="${escapeAttr(message.createdAt)}">${escapeHtml(formatTimestamp(message.createdAt, { timeOnly: true }))}</time>`
         : "";
+      const sender = user
+        ? `<div class="message-meta"><span class="message-avatar" aria-hidden="true">${escapeHtml((userLabel || "?").slice(0, 1))}</span><div class="message-role">${escapeHtml(userLabel)}</div></div>`
+        : `<div class="message-role sr-only">Autoto</div>`;
       return `
         <div class="message ${roleClass} chat-message chat-flow-item chat-flow-${alignment} peer-collaboration-message" data-chat-alignment="${alignment}" data-message-role="${escapeAttr(message.role)}" data-message-id="${escapeAttr(message.id)}">
           <div class="message-head">
-            <div class="message-role sr-only">${escapeHtml(user ? t("peerCollaboration.remoteUser") : "Autoto")}</div>
+            ${sender}
             ${time}
           </div>
           <div class="message-content">${transcriptBody(message.contentText)}</div>
@@ -298,6 +306,9 @@ export function createPeerCollaborationWorkspaceController({
       hostName: conversation.hostName,
       scopes: conversation.scopes,
       scopeLabels: scopeLabels(conversation.scopes).join(" · "),
+      model: conversation.model,
+      reasoningEffort: conversation.reasoningEffort,
+      permissionModeCap: conversation.permissionModeCap,
     };
   }
 

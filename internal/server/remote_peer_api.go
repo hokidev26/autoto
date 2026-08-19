@@ -324,7 +324,8 @@ func (s *Server) peerSnapshot(w http.ResponseWriter, r *http.Request) {
 			projects = append(projects, peercontrol.SnapshotProject{ID: project.ID, Name: project.Name, Status: project.Status, Agents: []peercontrol.SnapshotAgent{}})
 		}
 		projects[index].Agents = append(projects[index].Agents, peercontrol.SnapshotAgent{
-			ID: agent.ID, Name: agent.Title, PermissionModeCap: grant.PermissionModeCap, Status: agent.Status, PlanMode: agent.PlanMode,
+			ID: agent.ID, Name: agent.Title, Model: boundedPeerText(agent.Model, 128), ReasoningEffort: boundedPeerText(agent.ReasoningEffort, 32),
+			PermissionModeCap: grant.PermissionModeCap, Status: agent.Status, PlanMode: agent.PlanMode,
 			MessageCount: agent.MessageCount, Scopes: scopes, UpdatedAt: agent.UpdatedAt,
 		})
 		if request.AgentID != "" && agent.ID == request.AgentID {

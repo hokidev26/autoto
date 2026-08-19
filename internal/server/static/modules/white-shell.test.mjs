@@ -783,6 +783,26 @@ test("composer operation controls are exposed only in project context", async ()
   assert.match(composer, /id="sendMessageBtn"[^>]*data-i18n="chat\.send"[^>]*>发送<\/button>/);
 });
 
+test("a remote conversation keeps model and thinking chips as read-only chrome", async () => {
+  const [styles, appMain, selectMenus] = await Promise.all([
+    readStylesSource(stylesURL),
+    readAppMainSource(),
+    readFile(selectMenusURL, "utf8"),
+  ]);
+  const peerHide = styles.match(/body\.peer-conversation #conversationToolGroup,[\s\S]*?\{/)?.[0] || "";
+  assert.match(peerHide, /composer-attach-wrap/);
+  assert.match(peerHide, /#contextUsageBtn/);
+  assert.doesNotMatch(peerHide, /composer-model-field/);
+  assert.doesNotMatch(peerHide, /composer-effort-field/);
+  assert.match(styles, /body\.white-shell\.theme-light\.peer-conversation:not\(\.project-operation-context\) \[data-project-context-only\]\.composer-permission-field/);
+  assert.match(styles, /body\.white-shell\.theme-light\.peer-conversation \.composer-select-trigger[\s\S]*?pointer-events:\s*none/);
+  assert.match(appMain, /function paintPeerComposerSelects/);
+  assert.match(appMain, /aria-disabled/);
+  assert.match(appMain, /function peerModelDisplayName/);
+  assert.doesNotMatch(appMain, /input\.placeholder = t\(canSend \? "peerCollaboration\.sendPlaceholder"/);
+  assert.match(selectMenus, /getAttribute\("aria-disabled"\) === "true"/);
+});
+
 test("lightning control is a capability-gated Fast mode toggle", async () => {
   const [html, styles, appMain] = await Promise.all([
     readFile(indexURL, "utf8"),
@@ -1415,8 +1435,11 @@ test("composer responds to its actual width before the mobile breakpoint", async
   assert.match(responsiveStyles, /\.toolbar-model-pill\s*\{[^}]*width:\s*auto[^}]*min-width:\s*0[^}]*max-width:\s*100%[^}]*flex:\s*0 1 auto/);
   assert.match(responsiveStyles, /\.composer-model-field \.composer-select-trigger\s*\{[^}]*width:\s*auto[^}]*max-width:\s*100%/);
   assert.match(responsiveStyles, /\.composer-model-field \.composer-select-value\s*\{[^}]*flex:\s*0 1 auto/);
-  assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*1320px\)[\s\S]*?\.composer-task-summary\s*\{[^}]*width:\s*180px[^}]*max-width:\s*180px[^}]*flex:\s*0 1 180px/);
+  assert.match(responsiveStyles, /\.composer-task-summary\s*\{[^}]*width:\s*auto[^}]*max-width:\s*min\(280px, 46vw\)[^}]*flex:\s*0 1 auto/);
+  assert.match(responsiveStyles, /composer-toolbar:has\(\.composer-task-summary\.has-foreground-activity\) > \.composer-task-summary\.has-foreground-activity[\s\S]*?flex:\s*0 1 auto[\s\S]*?margin-left:\s*auto/);
+  assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*1320px\)[\s\S]*?\.composer-task-summary\s*\{[^}]*width:\s*auto[^}]*max-width:\s*min\(220px, 42vw\)[^}]*flex:\s*0 1 auto/);
   assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*900px\)[\s\S]*?\.composer-task-summary\s*\{[^}]*width:\s*30px[^}]*flex:\s*0 0 30px/);
+  assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*900px\)[\s\S]*?\.composer-task-summary\.has-foreground-activity[\s\S]*?flex:\s*0 1 auto/);
   assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*900px\)[\s\S]*?\.composer-task-summary\.has-foreground-activity[\s\S]*?\.header-task-summary-copy\s*\{[^}]*display:\s*block/);
   // The 200px lock outlived the `provider:model` label. The trigger now shows
   // the model name, so that box left a hole before the effort chip.

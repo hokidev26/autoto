@@ -3373,7 +3373,8 @@ body.white-shell.theme-light .background-task-bubble.role-assistant .message-rol
   .remote-access-tunnel-phone-copy { width: 100%; }
   .remote-access-tunnel-action { min-width: 0; }
   .peer-collaboration-qr { width: 100%; height: auto; aspect-ratio: 1; }
-  .peer-collaboration-grant-scopes { grid-template-columns: 1fr; }
+  .peer-collaboration-grant-scopes,
+  .peer-collaboration-scope-grid { grid-template-columns: 1fr; }
   .peer-collaboration-created { justify-items: stretch; }
   #settingsContentBody .peer-collaboration-invite-form { grid-template-columns: 1fr; }
   #settingsContentBody .peer-collaboration-invite-form .settings-action-btn { width: 100%; justify-self: stretch; }
@@ -3492,7 +3493,22 @@ body.white-shell.theme-light .background-task-bubble.role-assistant .message-rol
 }
 .peer-collaboration-editor { display: grid; gap: 12px; }
 .peer-collaboration-editor-block { display: grid; gap: 6px; }
+.peer-collaboration-scope-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+}
+.peer-collaboration-scope-grid .peer-collaboration-scope {
+  min-height: 0;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 8px;
+}
+.peer-collaboration-scope-grid .peer-collaboration-scope span { gap: 2px; }
+.peer-collaboration-scope-grid .peer-collaboration-scope strong { font-size: 12px; line-height: 1.25; }
 .peer-collaboration-scope small { display: block; color: var(--muted, #64748b); font-size: 11px; line-height: 1.4; }
+.peer-collaboration-scope-grid .peer-collaboration-scope small { font-size: 10px; line-height: 1.35; }
 .peer-collaboration-grant-row {
   display: grid;
   gap: 8px;
@@ -3608,9 +3624,6 @@ body.white-shell.theme-light.theme-dark .peer-collaboration-meta-row + .peer-col
 
 body.peer-conversation #conversationToolGroup,
 body.peer-conversation #copyConversationBtn,
-body.peer-conversation .composer-model-field,
-body.peer-conversation .composer-effort-field,
-body.peer-conversation .composer-permission-field,
 body.peer-conversation #openProviderLoginBtn,
 body.peer-conversation #contextUsageBtn,
 body.peer-conversation #headerTaskSummaryBtn,
@@ -3619,9 +3632,29 @@ body.peer-conversation #slashCommandPalette,
 body.peer-conversation #mentionPalette {
   display: none !important;
 }
+body.white-shell.theme-light.peer-conversation .composer-controls {
+  margin-left: auto;
+}
+body.white-shell.theme-light.peer-conversation .composer-permission-field,
+body.white-shell.theme-light.peer-conversation:not(.project-operation-context) .composer-permission-field,
+body.white-shell.theme-light.peer-conversation:not(.project-operation-context) [data-project-context-only].composer-permission-field {
+  display: flex !important;
+}
+body.white-shell.theme-light.peer-conversation .composer-select-trigger {
+  pointer-events: none;
+  cursor: default;
+}
 body.peer-conversation-readonly #sendMessageBtn {
   opacity: .45;
   pointer-events: none;
+}
+.peer-collaboration-message {
+  width: min(740px, 100%);
+  max-width: 100%;
+}
+.peer-collaboration-message.user {
+  width: fit-content;
+  max-width: min(520px, 92%);
 }
 
 /* Remote access — dark mode */
@@ -4368,12 +4401,12 @@ body.white-shell.theme-light.theme-dark .header-task-queue-badge {
 
 /* Minimal left-aligned task activity, matching the inline running indicator. */
 body.white-shell.theme-light .composer-task-summary {
-  width: min(520px, 46vw);
-  max-width: 520px;
+  width: auto;
+  max-width: min(280px, 46vw);
   min-height: 30px;
   height: 30px;
-  flex: 0 1 520px;
-  grid-template-columns: 14px minmax(0, 1fr) auto;
+  flex: 0 1 auto;
+  grid-template-columns: 14px minmax(0, max-content) auto;
   gap: 8px;
   padding: 0;
   border: 0;
@@ -4511,8 +4544,8 @@ body.white-shell.theme-light.theme-dark .composer-task-summary.active {
     width: auto;
     min-width: 28px;
     max-width: min(180px, 58vw);
-    flex: 1 1 auto;
-    grid-template-columns: 14px minmax(0, 1fr);
+    flex: 0 1 auto;
+    grid-template-columns: 14px minmax(0, max-content);
     gap: 8px;
     place-items: center start;
   }

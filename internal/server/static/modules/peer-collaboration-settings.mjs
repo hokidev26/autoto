@@ -441,7 +441,7 @@ export function createPeerCollaborationSettingsController({
         <div class="peer-collaboration-editor-block">
           <strong>${escapeHtml(rt("pairingScopes"))}</strong>
           <p class="settings-card-description">${escapeHtml(rt("pairingScopesHint"))}</p>
-          <div class="settings-form-grid">${renderScopeChecks(kind, id, draft.scopes)}</div>
+          <div class="peer-collaboration-scope-grid">${renderScopeChecks(kind, id, draft.scopes)}</div>
         </div>
         <label class="settings-form-field">${escapeHtml(rt("expiresInHours"))}
           <input class="settings-field" type="number" min="0" step="1" value="${escapeAttr(String(draft.expiresInHours || 0))}" data-peer-expiry="1" data-peer-draft-kind="${escapeAttr(kind)}" data-peer-draft-id="${escapeAttr(id)}" />
@@ -897,6 +897,10 @@ export function createPeerCollaborationSettingsController({
     load,
     pollClaim,
     render,
+    reviewInvitation(id) {
+      openApproval = String(id || "");
+      onChange?.(state.peerCollaboration);
+    },
     revokePairing,
     deletePairing,
     saveAuthorization,

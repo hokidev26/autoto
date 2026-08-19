@@ -34,6 +34,8 @@ function snapshotPayload(overrides = {}) {
       agents: [{
         id: "agent-1",
         name: "國鋒專用 修改網站",
+        model: "google:gemini-3-pro",
+        reasoningEffort: "xhigh",
         status: "idle",
         messageCount: 4,
         scopes: ["observe", "send_task", "approve_once"],
@@ -144,6 +146,54 @@ test("restricted remote and guest accounts must not fetch the controller API", (
   assert.equal(peerWorkspaceFetchAllowed({ account: { role: "user" } }, { hostname: "localhost" }), true);
 });
 
+test("snapshots keep the host model and thinking strength for composer chrome", () => {
+  const snapshot = normalizePeerSnapshot(snapshotPayload({
+    projects: [{
+      id: "project-1",
+      name: "mingpan",
+      agents: [{
+        id: "agent-1",
+        name: "國鋒專用 修改網站",
+        model: "google:gemini-3-pro",
+        reasoningEffort: "xhigh",
+        status: "idle",
+        messageCount: 4,
+        scopes: ["observe", "send_task"],
+        permissionModeCap: "acceptEdits",
+        updatedAt: "2026-08-19T03:00:00Z",
+      }],
+    }],
+  }));
+  const conversations = collectPeerConversations([{ pairing, snapshot }]);
+  assert.equal(conversations[0].model, "google:gemini-3-pro");
+  assert.equal(conversations[0].reasoningEffort, "xhigh");
+  assert.equal(conversations[0].permissionModeCap, "acceptEdits");
+});
+
+test("the remote transcript uses the local left-aligned chat flow", () => {
+  const html = renderPeerTranscriptHTML({
+    conversation: {
+      hostName: "Autoto",
+      title: "國鋒專用",
+      scopes: ["observe", "send_task"],
+    },
+    snapshot: normalizePeerSnapshot({
+      selectedAgent: {
+        agentId: "agent-1",
+        messages: [
+          { id: "m1", role: "user", contentText: "你好", createdAt: "2026-08-19T03:00:00Z" },
+          { id: "m2", role: "assistant", contentText: "收到", createdAt: "2026-08-19T03:01:00Z" },
+        ],
+      },
+    }),
+  });
+  assert.match(html, /chat-flow-left/);
+  assert.doesNotMatch(html, /chat-flow-right/);
+  assert.match(html, /message-avatar/);
+  assert.match(html, /message-role sr-only">Autoto/);
+  assert.match(html, /peer-collaboration-message/);
+});
+
 test("the workspace controller loads controller snapshots and sends through the proxy", async () => {
   const requests = [];
   const controller = createPeerCollaborationWorkspaceController({
@@ -170,6 +220,9 @@ test("the workspace controller loads controller snapshots and sends through the 
   controller.select("peer:pairing-1:agent-1");
   await controller.refresh({ force: true });
   assert.equal(controller.canSend(), true);
+  assert.equal(controller.selectedSummary()?.model, "google:gemini-3-pro");
+  assert.equal(controller.selectedSummary()?.reasoningEffort, "xhigh");
+  assert.equal(controller.selectedSummary()?.permissionModeCap, "acceptEdits");
   assert.match(controller.renderTranscriptHTML(), /hello/);
   await controller.sendTask("請繼續");
   const send = requests.find((entry) => entry.method === "POST" && entry.path.endsWith("/tasks"));

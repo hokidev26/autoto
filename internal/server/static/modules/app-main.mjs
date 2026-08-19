@@ -3927,6 +3927,61 @@ async function selectProject(id, options = {}) {
 // actually for: put the reader back on it. It repaints the navigation so the row
 // reads as current, scrolls it into view when the click came from somewhere else,
 // and returns focus to the composer. No requests, no transcript rebuild.
+function composerSelectValueNode(selectId) {
+  return document.querySelector(`[data-composer-select="${selectId}"]`)?.querySelector(".composer-select-value");
+}
+
+function composerOptionLabel(selectId, value, fallback = "") {
+  const select = $(selectId);
+  const match = [...(select?.options || [])].find((option) => option.value === value);
+  const label = match?.textContent?.trim();
+  return label || fallback || value || "—";
+}
+
+function peerModelDisplayName(model) {
+  const text = String(model || "").trim();
+  if (!text) return "—";
+  const index = text.indexOf(":");
+  return index >= 0 ? text.slice(index + 1) : text;
+}
+
+function paintPeerComposerSelects(summary) {
+  const modelNode = composerSelectValueNode("modelSelect");
+  const effortNode = composerSelectValueNode("reasoningEffort");
+  const permissionNode = document.querySelector(".permission-toolbar-pill .mode-display");
+  const modelName = peerModelDisplayName(summary?.model);
+  const effort = String(summary?.reasoningEffort || "auto").trim() || "auto";
+  const permission = String(summary?.permissionModeCap || "readOnly").trim() || "readOnly";
+  if (modelNode) {
+    modelNode.textContent = modelName;
+    modelNode.title = String(summary?.model || modelName);
+    modelNode.dataset.mobileLabel = modelName.slice(0, 8);
+  }
+  if (effortNode) {
+    effortNode.textContent = composerOptionLabel("reasoningEffort", effort, effort);
+  }
+  if (permissionNode) {
+    permissionNode.textContent = composerOptionLabel("permissionMode", permission, permissionLabel(permission));
+    permissionNode.dataset.mobileLabel = permissionMobileLabel(permission);
+  }
+  const permissionField = document.querySelector(".composer-permission-field");
+  if (permissionField) permissionField.setAttribute("aria-hidden", "false");
+  document.querySelectorAll("[data-composer-select]").forEach((trigger) => {
+    trigger.setAttribute("aria-disabled", "true");
+  });
+}
+
+function restoreComposerSelectDisplays() {
+  document.querySelectorAll("[data-composer-select]").forEach((trigger) => {
+    trigger.removeAttribute("aria-disabled");
+    const select = $(trigger.dataset.composerSelect);
+    const option = select?.selectedOptions?.[0];
+    const valueNode = trigger.querySelector(".composer-select-value");
+    if (!valueNode || !option) return;
+    valueNode.textContent = option.textContent?.trim() || option.value;
+  });
+}
+
 function applyPeerComposerChrome() {
   const selected = Boolean(peerCollaborationWorkspace?.isSelected());
   const canSend = Boolean(peerCollaborationWorkspace?.canSend());
@@ -3934,11 +3989,14 @@ function applyPeerComposerChrome() {
   document.body.classList.toggle("peer-conversation-readonly", selected && !canSend);
   const input = $("messageText");
   if (!input) return;
+  input.disabled = selected && !canSend;
   if (selected) {
-    input.placeholder = t(canSend ? "peerCollaboration.sendPlaceholder" : "peerCollaboration.observeOnlyPlaceholder");
-    input.disabled = !canSend;
+    input.placeholder = t(canSend ? "chat.messagePlaceholder" : "peerCollaboration.observeOnlyPlaceholder");
+    paintPeerComposerSelects(peerCollaborationWorkspace?.selectedSummary?.() || null);
     return;
   }
+  restoreComposerSelectDisplays();
+  updatePermissionModeDisplay();
   input.placeholder = t("chat.messagePlaceholder");
 }
 

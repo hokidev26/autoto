@@ -4,6 +4,22 @@ body.white-shell.theme-light .composer-wrap {
   container-type: inline-size;
 }
 
+/* Retrying used to grow the task chip across the leftover gutter, so the
+   refresh glyph sat on the left while the context ring stayed on the right.
+   Hug the retry label and park it next to that ring on every width. */
+body.white-shell.theme-light .composer-toolbar:has(.composer-task-summary.has-foreground-activity) > .composer-task-summary.has-foreground-activity {
+  width: auto;
+  min-width: 0;
+  max-width: min(220px, 46vw);
+  flex: 0 1 auto;
+  margin-left: auto;
+  margin-right: 0;
+}
+
+body.white-shell.theme-light .composer-toolbar:has(.composer-task-summary.has-foreground-activity) > .context-usage-btn {
+  margin-left: 0;
+}
+
 @media (min-width: 768px) {
   /* workbench pins toolbar items to the top of the row. The controls are not
      one height (30px icon buttons beside 32-34px pills depending on the
@@ -22,6 +38,15 @@ body.white-shell.theme-light .composer-wrap {
      ring sits immediately to the left of the model selector. */
   body.white-shell.theme-light .context-usage-btn {
     margin-left: auto;
+  }
+
+  /* Idle copy used a 520px/46vw reserved slot, which stretched the moon away
+     from the ring as the chat column narrowed. Hug the label instead. */
+  body.white-shell.theme-light .composer-task-summary {
+    width: auto;
+    min-width: 0;
+    max-width: min(280px, 46vw);
+    flex: 0 1 auto;
   }
 
   body.white-shell.theme-light .composer-select-value {
@@ -118,11 +143,11 @@ body.white-shell.theme-light .composer-wrap {
 
   @container composer-shell (max-width: 1320px) {
     body.white-shell.theme-light .composer-task-summary {
-      width: 180px;
-      min-width: 120px;
-      max-width: 180px;
-      flex: 0 1 180px;
-      grid-template-columns: 14px minmax(0, 1fr);
+      width: auto;
+      min-width: 0;
+      max-width: min(220px, 42vw);
+      flex: 0 1 auto;
+      grid-template-columns: 14px minmax(0, max-content);
       gap: 8px;
     }
 
@@ -155,7 +180,7 @@ body.white-shell.theme-light .composer-wrap {
       width: auto;
       min-width: 30px;
       max-width: min(180px, 42vw);
-      flex: 1 1 auto;
+      flex: 0 1 auto;
       grid-template-columns: 14px minmax(0, 1fr);
       gap: 8px;
       place-items: center start;
@@ -2190,10 +2215,10 @@ body.white-shell.theme-light.theme-dark #settingsContentBody .compact-settings-s
     width: auto;
     min-width: 0;
     max-width: min(48vw, 168px);
-    flex: 1 1 auto;
+    flex: 0 1 auto;
     height: 30px;
     min-height: 30px;
-    grid-template-columns: 14px minmax(0, 1fr);
+    grid-template-columns: 14px minmax(0, max-content);
     gap: 6px;
     margin-right: auto;
     place-items: center start;

@@ -42,10 +42,13 @@ All notable changes to Autoto are tracked here. The project is still an experime
 - Git command failures still include the working directory and argv for a local operator; remote sessions receive the existing generic error text.
 - About licenses lists reviewed direct and indirect modules from `go.mod` instead of leaving most of them unknown.
 - Connecting to another Autoto puts the invitation code on its own row, with the display name and submit control beside each other instead of a stretched three-cell form grid.
+- Pending-invitation pairing scopes are compact two-column rows instead of tall checkbox cards.
+- A shared remote conversation uses the same left-aligned chat bubbles as a local thread. The composer shows the host's model and thinking strength as read-only chips; changing them still happens on the host.
 
 ### Fixed
 
 - Reconnecting the same Autoto devices no longer fails with a generic conflict. A repeat claim from the same identity is idempotent, and a new invitation from that peer replaces the previous active pairing.
+- Narrowing the chat column no longer stretches the retry/status chip away from the context ring beside the model picker.
 - The remote-collaboration pairing card no longer leaves a blank second column beside the sharing switch and fingerprint.
 - The conversation sidebar keeps a Remote collaboration section visible on the controller, even before a pairing has shared any agents.
 - Revoked and expired remote-collaboration pairings can be deleted from settings so inactive records do not accumulate. Active pairings still have to be revoked first.

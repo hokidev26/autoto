@@ -348,6 +348,16 @@ test("invitations cannot be created without sharing and an HTTPS tunnel", async 
   assert.match(readyHTML, /data-peer-action="open-approve"/);
 });
 
+test("a claimed invitation opens a compact pairing-scope editor", async () => {
+  const harness = createHarness({ status: statusPayload({ invitations: [claimedInvitation()] }) });
+  await harness.controller.load();
+  harness.controller.reviewInvitation("invitation-1");
+  const html = harness.controller.render();
+  assert.match(html, /peer-collaboration-scope-grid/);
+  assert.match(html, /class="settings-check-row peer-collaboration-scope"/);
+  assert.doesNotMatch(html, /settings-form-grid/);
+});
+
 test("turning sharing off reports the revocation and keeps state in step", async () => {
   const harness = createHarness({
     responses: { "/api/remote-collaboration/sharing": () => ({ sharingEnabled: false }) },

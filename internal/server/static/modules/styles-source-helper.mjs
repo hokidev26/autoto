@@ -7,7 +7,7 @@ import { readFile } from "node:fs/promises";
 // CSS text resolve the same imports here so selector pins keep working.
 export async function readStylesSource(stylesUrl) {
   const entry = await readFile(stylesUrl, "utf8");
-  const imports = [...entry.matchAll(/@import\s+url\("([^"]+)"\)/g)].map((m) => m[1]);
+  const imports = [...entry.matchAll(/@import\s+url\("([^"]+)"\)/g)].map((m) => String(m[1]).replace(/\?.*$/, ""));
   if (imports.length === 0) return entry;
   const parts = await Promise.all(imports.map((rel) => readFile(new URL(rel, stylesUrl), "utf8")));
   return parts.join("");

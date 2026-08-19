@@ -161,6 +161,9 @@ func TestPeerSnapshotOmitsWorkspacePromptAndRawToolInput(t *testing.T) {
 	if !strings.Contains(payload, `"approvalId":"approval-1"`) || !strings.Contains(payload, `"contentText":"safe response"`) {
 		t.Fatalf("snapshot omitted safe projection fields: %s", payload)
 	}
+	if !strings.Contains(payload, `"model":"test:model"`) {
+		t.Fatalf("snapshot omitted the agent model used by the composer: %s", payload)
+	}
 }
 
 func newPeerAPITestServer(t *testing.T) (*Server, *db.Store, *peercontrol.Manager) {

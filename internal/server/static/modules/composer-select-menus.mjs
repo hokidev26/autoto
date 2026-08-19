@@ -247,6 +247,7 @@ export function createComposerSelectMenus({
         ariaHaspopup: trigger.getAttribute("aria-haspopup") || "listbox",
       };
       const sync = () => {
+        if (trigger.getAttribute("aria-disabled") === "true") return;
         const option = select?.selectedOptions?.[0] || select?.options?.[select?.selectedIndex];
         if (valueNode && option) {
           const optionText = option.textContent?.trim() || option.value;
@@ -885,6 +886,7 @@ export function createComposerSelectMenus({
 
     const triggerHandlers = bindings.map((binding) => {
       const handler = (event) => {
+        if (binding.trigger.getAttribute("aria-disabled") === "true") return;
         event.preventDefault();
         event.stopPropagation();
         open(binding);

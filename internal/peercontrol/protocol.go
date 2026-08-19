@@ -85,12 +85,16 @@ type GetSnapshotRequest struct {
 	RunLimit     int    `json:"runLimit,omitempty"`
 }
 
-// SnapshotAgent is the bounded agent summary shared with a controller. It never
-// includes the model system prompt, workspace path, provider identity, or local
+// SnapshotAgent is the bounded agent summary shared with a controller. It
+// includes the current model id and reasoning effort so the controller
+// composer can show the same chips as a local chat. It never includes the
+// model system prompt, workspace path, provider credentials, or local
 // execution-device details.
 type SnapshotAgent struct {
 	ID                string  `json:"id"`
 	Name              string  `json:"name"`
+	Model             string  `json:"model,omitempty"`
+	ReasoningEffort   string  `json:"reasoningEffort,omitempty"`
 	PermissionModeCap string  `json:"permissionModeCap"`
 	Status            string  `json:"status"`
 	PlanMode          bool    `json:"planMode"`
