@@ -444,6 +444,35 @@ func (s *remoteCollaborationStore) ExpireRemotePairingInvitation(ctx context.Con
 	return s.transitionRemotePairingInvitation(ctx, id, expectedStatus, RemotePairingInvitationStatusExpired, expectedRevision, true)
 }
 
+func inactiveRemotePairingInvitationStatus(status string) bool {
+	switch strings.TrimSpace(status) {
+	case RemotePairingInvitationStatusRejected, RemotePairingInvitationStatusRevoked, RemotePairingInvitationStatusExpired:
+		return true
+	default:
+		return false
+	}
+}
+
+// DeleteRemotePairingInvitation removes an invitation that is already
+// rejected, revoked, or expired. Open and claimed rows must be revoked or
+// rejected first so the code cannot still be redeemed; approved rows stay as
+// the audit trail of a pairing.
+func (s *remoteCollaborationStore) DeleteRemotePairingInvitation(ctx context.Context, id, expectedStatus string, expectedRevision int64) error {
+	id, err := normalizeRemoteID("invitation id", id)
+	if err != nil {
+		return err
+	}
+	expectedStatus = strings.TrimSpace(expectedStatus)
+	if !inactiveRemotePairingInvitationStatus(expectedStatus) || expectedRevision < 1 {
+		return errors.New("inactive remote pairing invitation expected state is required")
+	}
+	result, err := s.db.ExecContext(ctx, `DELETE FROM remote_pairing_invitations WHERE id = ? AND status = ? AND revision = ? AND status IN ('rejected', 'revoked', 'expired')`, id, expectedStatus, expectedRevision)
+	if err != nil {
+		return fmt.Errorf("delete remote pairing invitation: %w", err)
+	}
+	return requireRemoteTransition(result, "delete remote pairing invitation")
+}
+
 func (s *remoteCollaborationStore) transitionRemotePairingInvitation(ctx context.Context, id, expectedStatus, targetStatus string, expectedRevision int64, requireExpired bool) (RemotePairingInvitation, error) {
 	id, err := normalizeRemoteID("invitation id", id)
 	if err != nil {

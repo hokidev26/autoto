@@ -291,6 +291,19 @@ export function createPeerCollaborationSettingsController({
     await load();
   }
 
+  async function deleteInvitation(id) {
+    const current = invitation(id);
+    if (!current) throw new Error(rt("invitationMissing"));
+    await request(`${endpoint}/invitations/${encodeURIComponent(id)}/delete`, {
+      method: "POST",
+      body: JSON.stringify({ status: current.status, revision: current.revision }),
+    });
+    approvalDrafts.delete(id);
+    if (openApproval === id) openApproval = "";
+    showToast?.(rt("invitationDeletedToast"));
+    await load();
+  }
+
   async function saveAuthorization(id) {
     const current = pairing(id);
     if (!current) throw new Error(rt("pairingMissing"));
@@ -481,6 +494,7 @@ export function createPeerCollaborationSettingsController({
   function renderInvitation(item) {
     const actionable = item.status === "open" || item.status === "claimed";
     const approvable = item.status === "claimed";
+    const inactive = item.status === "rejected" || item.status === "revoked" || item.status === "expired";
     const editing = openApproval === item.id;
     return `
       <div class="peer-collaboration-invitation peer-collaboration-item" data-peer-invitation="${escapeAttr(item.id)}">
@@ -492,13 +506,16 @@ export function createPeerCollaborationSettingsController({
               expiresAt: formatPeerInstant(item.expiresAt) || item.expiresAt || "—",
             }))}</div>
           </div>
-          <span class="settings-status-pill settings-badge ${item.status === "approved" ? "ok" : actionable ? "" : "warn"}">${escapeHtml(rt(`invitationStatus.${item.status}`))}</span>
+          <div class="peer-collaboration-item-tools">
+            <span class="settings-status-pill settings-badge ${item.status === "approved" ? "ok" : actionable ? "" : "warn"}">${escapeHtml(rt(`invitationStatus.${item.status}`))}</span>
+            ${inactive ? `<button class="settings-action-btn danger" type="button" data-peer-action="delete-invitation" data-peer-id="${escapeAttr(item.id)}">${escapeHtml(rt("deleteInvitation"))}</button>` : ""}
+          </div>
         </div>
         ${item.failedAttempts ? `<div class="settings-inline-alert settings-alert" role="status">${escapeHtml(rt("failedAttempts", { count: String(item.failedAttempts) }))}</div>` : ""}
         ${item.lockedUntil ? `<div class="settings-inline-alert settings-alert" role="status">${escapeHtml(rt("lockedUntil", { lockedUntil: item.lockedUntil }))}</div>` : ""}
         ${editing ? renderAuthorizationEditor("approval", item.id, approvalDraft(item.id), { submitAction: "approve", submitLabel: rt("approvePairing") }) : ""}
         <div class="settings-action-row settings-card-footer">
-          <span class="settings-provider-meta">${escapeHtml(approvable ? rt("claimedHint") : rt("openHint"))}</span>
+          <span class="settings-provider-meta">${escapeHtml(approvable ? rt("claimedHint") : inactive ? rt("inactiveInvitationHint") : rt("openHint"))}</span>
           ${approvable && !editing ? `<button class="settings-action-btn primary" type="button" data-peer-action="open-approve" data-peer-id="${escapeAttr(item.id)}">${escapeHtml(rt("reviewClaim"))}</button>` : ""}
           ${approvable ? `<button class="settings-action-btn subtle" type="button" data-peer-action="reject" data-peer-id="${escapeAttr(item.id)}">${escapeHtml(rt("rejectClaim"))}</button>` : ""}
           ${actionable ? `<button class="settings-action-btn subtle" type="button" data-peer-action="revoke-invitation" data-peer-id="${escapeAttr(item.id)}">${escapeHtml(rt("revokeInvitation"))}</button>` : ""}
@@ -847,6 +864,12 @@ export function createPeerCollaborationSettingsController({
       case "revoke-invitation":
         await transitionInvitation(id, "revoke");
         return;
+      case "delete-invitation": {
+        const confirmed = confirmAction ? await confirmAction(rt("deleteInvitationConfirm")) : true;
+        if (!confirmed) return;
+        await deleteInvitation(id);
+        return;
+      }
       case "open-auth":
         openAuthorization = id;
         onChange?.(state.peerCollaboration);
@@ -1029,6 +1052,7 @@ export function createPeerCollaborationSettingsController({
     },
     revokePairing,
     deletePairing,
+    deleteInvitation,
     saveAuthorization,
     setSharing,
     transitionInvitation,

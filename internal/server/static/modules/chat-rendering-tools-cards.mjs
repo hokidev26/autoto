@@ -894,6 +894,7 @@ function renderToolActivityRowHTML(record, options = {}) {
           ${presentation.target ? `<strong class="${targetClass}">${escapeHtml(presentation.target)}</strong>` : ""}
           <span class="tool-activity-step-status">${renderToolActivityStepStatusHTML(presentation)}</span>
         </span>
+        ${disclosureChevronMarkup()}
       </button>
       <div class="tool-activity-inline-detail" data-tool-activity-inline-detail="${escapeAttr(tool.toolUseId)}">${inlineDetail}</div>
     </li>

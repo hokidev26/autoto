@@ -375,6 +375,7 @@ func (s *Server) peerSnapshotAgentState(r *http.Request, authorized peerAuthoriz
 	for _, message := range page.Messages {
 		messages = append(messages, peercontrol.SnapshotMessage{
 			ID: message.ID, RunID: message.RunID, Role: message.Role,
+			ParentToolUseID: boundedPeerText(message.ParentToolID, 128),
 			ContentText:     boundedPeerText(agentpkg.RedactToolActivityText(message.ContentText), remotePeerMessageTextBytes),
 			CompletionState: boundedPeerText(agentpkg.RedactToolActivityText(message.CompletionState), 256),
 			StopReason:      boundedPeerText(agentpkg.RedactToolActivityText(message.StopReason), remotePeerApprovalTextBytes),

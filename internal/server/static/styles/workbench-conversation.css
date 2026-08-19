@@ -742,6 +742,27 @@ body.white-shell.theme-light .navigation-project-row > .navigation-row-fork[aria
   pointer-events: auto;
 }
 
+/* Phones have no hover, so the folder "+" would stay pointer-events:none
+   forever and every tap would expand the project instead. Keep it visible
+   and hittable there; desktop still reveals it on hover. */
+@media (hover: none) {
+  .navigation-project-row > .navigation-row-fork {
+    opacity: 1;
+  }
+
+  body.white-shell.theme-light .navigation-project-row > .navigation-row-fork {
+    pointer-events: auto;
+  }
+}
+
+@media (pointer: coarse) {
+  .navigation-project-row > .navigation-row-fork {
+    min-width: 32px;
+    min-height: 32px;
+    padding: 6px 4px;
+  }
+}
+
 body.white-shell.theme-light .navigation-conversation-row .navigation-conversation-meta {
   display: block;
   max-width: 100%;

@@ -256,6 +256,21 @@ test("rejecting and revoking an invitation carry the status the server expects",
   ]);
 });
 
+test("deleting a revoked invitation sends the inactive status and revision", async () => {
+  const harness = createHarness({
+    status: statusPayload({ invitations: [claimedInvitation({ status: "revoked" })] }),
+  });
+  await harness.controller.load();
+  const html = harness.controller.render();
+  assert.match(html, /peer-collaboration-item-tools[\s\S]*data-peer-action="delete-invitation"/);
+  assert.match(html, /settings-action-btn danger[\s\S]*data-peer-action="delete-invitation"/);
+  assert.doesNotMatch(html, /data-peer-action="revoke-invitation"/);
+  assert.doesNotMatch(html, /settings-card-footer[\s\S]*data-peer-action="delete-invitation"/);
+  await harness.controller.deleteInvitation("invitation-1");
+  const removed = harness.requests.find((entry) => entry.path.endsWith("/invitations/invitation-1/delete"));
+  assert.deepEqual(removed.body, { status: "revoked", revision: 2 });
+});
+
 test("editing authorization replaces the whole grant set against the grant revision", async () => {
   const harness = createHarness({
     status: statusPayload({ pairings: [hostPairing()] }),

@@ -138,6 +138,11 @@ func TestPeerSnapshotOmitsWorkspacePromptAndRawToolInput(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := store.AddMessage(context.Background(), db.Message{
+		AgentID: agent.ID, Role: "user", ParentToolID: "call-safe-1", ContentText: "Tool Bash (call-safe-1) completed:\nok",
+	}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := store.AddToolCall(context.Background(), db.ToolCall{
 		AgentID: agent.ID, ToolUseID: "approval-1", ToolName: "Bash", InputJSON: json.RawMessage(`{"command":"` + toolSecret + `"}`),
 		Status: "pending_approval", PermissionDecisionReason: "review required", PermissionDenyMessage: "be careful",
@@ -160,6 +165,9 @@ func TestPeerSnapshotOmitsWorkspacePromptAndRawToolInput(t *testing.T) {
 	}
 	if !strings.Contains(payload, `"approvalId":"approval-1"`) || !strings.Contains(payload, `"contentText":"safe response"`) {
 		t.Fatalf("snapshot omitted safe projection fields: %s", payload)
+	}
+	if !strings.Contains(payload, `"parentToolUseId":"call-safe-1"`) {
+		t.Fatalf("snapshot omitted the tool-result parent id: %s", payload)
 	}
 	if !strings.Contains(payload, `"model":"test:model"`) {
 		t.Fatalf("snapshot omitted the agent model used by the composer: %s", payload)

@@ -1,7 +1,16 @@
+import { copyTextAsNormalLines } from "./clipboard-text.mjs";
 import { escapeAttr, escapeHtml, setButtonBusy } from "./dom.mjs";
 import { formatCompactRelativeTime, navigationAgentStatusClass, navigationStatusLabel } from "./conversation-navigation.mjs";
 import { formatTimestamp } from "./formatters.mjs";
 import { t } from "./i18n.mjs";
+import { t as cr } from "./messages-chat-rendering-extra.mjs";
+import { transcriptMessageText } from "./chat-rendering-messages.mjs";
+import {
+  nextToolActivitySelection,
+  normalizeToolActivity,
+  renderToolActivityCardHTML,
+  renderToolActivityStackHTML,
+} from "./chat-rendering-tools.mjs";
 import { normalizePeerPairing, normalizePeerScopes } from "./peer-collaboration-settings.mjs";
 
 const endpoint = "/api/remote-collaboration";
@@ -79,6 +88,8 @@ export function normalizePeerSnapshot(value = {}, pairingId = "") {
       agentId: textValue(selected.agentId),
       messages: (Array.isArray(selected.messages) ? selected.messages : []).map((message) => ({
         id: textValue(message?.id),
+        runId: textValue(message?.runId),
+        parentToolUseId: textValue(message?.parentToolUseId || message?.parentToolID),
         role: textValue(message?.role, "assistant").toLowerCase(),
         contentText: String(message?.contentText ?? message?.content ?? ""),
         createdAt: textValue(message?.createdAt),
@@ -131,8 +142,108 @@ function scopeLabels(scopes) {
   return normalizePeerScopes(scopes).map((scope) => t(`peerCollaboration.scope.${scope}`)).filter(Boolean);
 }
 
+const peerToolResultLine = /^\s*Tool\s+(\S+)\s+\(([^)]+)\)\s+(completed|error|failed|cancelled|canceled|interrupted)\s*:\s*/i;
+
+export function parsePeerToolResultMessage(message = {}) {
+  const parentToolUseId = String(message?.parentToolUseId || message?.parentToolID || "").trim();
+  const content = String(message?.contentText ?? "");
+  const match = peerToolResultLine.exec(content);
+  if (!parentToolUseId && !match) return null;
+  let status = String(match?.[3] || "completed").toLowerCase();
+  if (status === "failed") status = "error";
+  if (status === "canceled") status = "cancelled";
+  return {
+    toolUseId: parentToolUseId || String(match?.[2] || message?.id || "").trim(),
+    toolName: String(match?.[1] || "tool").trim() || "tool",
+    status,
+    output: match ? content.slice(match[0].length) : content,
+    runId: String(message?.runId || ""),
+    messageId: String(message?.id || ""),
+    createdAt: String(message?.createdAt || ""),
+  };
+}
+
+export function peerTranscriptItems(messages = []) {
+  const items = [];
+  let pending = [];
+  const flushTools = () => {
+    if (!pending.length) return;
+    const stackKey = `peer:${pending[0].messageId || pending[0].toolUseId}`;
+    items.push({ type: "tools", stackKey, tools: pending });
+    pending = [];
+  };
+  for (const message of Array.isArray(messages) ? messages : []) {
+    const tool = parsePeerToolResultMessage(message);
+    if (tool) {
+      pending.push(tool);
+      continue;
+    }
+    const text = transcriptMessageText(message);
+    if (!text.trim()) continue;
+    flushTools();
+    items.push({ type: "message", message, text });
+  }
+  flushTools();
+  return items;
+}
+
 function transcriptBody(text) {
   return escapeHtml(text).replace(/\r\n|\r|\n/g, "<br>");
+}
+
+function renderPeerMessageHTML(message, text) {
+  const user = message.role === "user";
+  const alignment = "left";
+  const roleClass = user ? "user" : "assistant";
+  const userLabel = t("peerCollaboration.remoteUser");
+  const time = message.createdAt
+    ? `<time class="message-time" datetime="${escapeAttr(message.createdAt)}">${escapeHtml(formatTimestamp(message.createdAt, { timeOnly: true }))}</time>`
+    : "";
+  const sender = user
+    ? `<div class="message-meta"><span class="message-avatar" aria-hidden="true">${escapeHtml((userLabel || "?").slice(0, 1))}</span><div class="message-role">${escapeHtml(userLabel)}</div></div>`
+    : `<div class="message-role sr-only">Autoto</div>`;
+  return `
+        <div class="message ${roleClass} chat-message chat-flow-item chat-flow-${alignment} peer-collaboration-message" data-chat-alignment="${alignment}" data-message-role="${escapeAttr(message.role)}" data-message-id="${escapeAttr(message.id)}">
+          <div class="message-head">
+            ${sender}
+            ${time}
+          </div>
+          <div class="message-content">${transcriptBody(text)}</div>
+        </div>`;
+}
+
+function renderPeerToolActivityHTML(item) {
+  const stack = renderToolActivityStackHTML(item.tools, {
+    compact: true,
+    live: false,
+    tail: false,
+    stackKey: item.stackKey,
+    runId: item.tools.map((tool) => tool.runId).find(Boolean) || "",
+  });
+  return `<div class="message-tool-activity" data-message-activity="${escapeAttr(item.stackKey)}">${stack}</div>`;
+}
+
+function renderPeerToolActivitySelection(stack, records, selectedToolUseId) {
+  if (!stack) return;
+  const selected = String(selectedToolUseId || "");
+  stack.querySelectorAll?.("[data-tool-activity-select]").forEach((button) => {
+    const active = String(button.dataset?.toolActivitySelect || "") === selected;
+    button.setAttribute?.("aria-expanded", active ? "true" : "false");
+    const label = String(button.dataset?.toolActivityLabel || "");
+    button.setAttribute?.("aria-label", cr(active ? "activity.closeDetails" : "activity.openDetails", { tool: label }));
+    button.closest?.(".tool-activity-step")?.classList?.toggle?.("selected", active);
+  });
+  stack.querySelectorAll?.("[data-tool-activity-inline-detail]").forEach((slot) => {
+    const slotId = String(slot.dataset?.toolActivityInlineDetail || "");
+    if (slotId !== selected) {
+      slot.innerHTML = "";
+      return;
+    }
+    const record = (Array.isArray(records) ? records : []).find((item) => normalizeToolActivity(item).toolUseId === selected);
+    slot.innerHTML = record
+      ? renderToolActivityCardHTML(record, { detailsExpanded: true, inlineDetail: true })
+      : `<div class="tool-activity-empty">${escapeHtml(cr("activity.detailUnavailable"))}</div>`;
+  });
 }
 
 export function peerSnapshotErrorCopy(error) {
@@ -242,27 +353,11 @@ export function renderPeerTranscriptHTML({ conversation, snapshot, error = "" } 
   const banner = t(canSend ? "peerCollaboration.remoteBanner" : "peerCollaboration.remoteBannerObserve", {
     host: hostName || title,
   });
-  const messageHTML = messages.length
-    ? messages.map((message) => {
-      const user = message.role === "user";
-      const alignment = "left";
-      const roleClass = user ? "user" : "assistant";
-      const userLabel = t("peerCollaboration.remoteUser");
-      const time = message.createdAt
-        ? `<time class="message-time" datetime="${escapeAttr(message.createdAt)}">${escapeHtml(formatTimestamp(message.createdAt, { timeOnly: true }))}</time>`
-        : "";
-      const sender = user
-        ? `<div class="message-meta"><span class="message-avatar" aria-hidden="true">${escapeHtml((userLabel || "?").slice(0, 1))}</span><div class="message-role">${escapeHtml(userLabel)}</div></div>`
-        : `<div class="message-role sr-only">Autoto</div>`;
-      return `
-        <div class="message ${roleClass} chat-message chat-flow-item chat-flow-${alignment} peer-collaboration-message" data-chat-alignment="${alignment}" data-message-role="${escapeAttr(message.role)}" data-message-id="${escapeAttr(message.id)}">
-          <div class="message-head">
-            ${sender}
-            ${time}
-          </div>
-          <div class="message-content">${transcriptBody(message.contentText)}</div>
-        </div>`;
-    }).join("")
+  const items = peerTranscriptItems(messages);
+  const messageHTML = items.length
+    ? items.map((item) => item.type === "tools"
+      ? renderPeerToolActivityHTML(item)
+      : renderPeerMessageHTML(item.message, item.text)).join("")
     : `<div class="empty-workspace-card peer-collaboration-transcript-empty"><div class="empty-workspace-title">${escapeHtml(t("peerCollaboration.remoteEmpty"))}</div></div>`;
   const approvalHTML = approvals.length
     ? `<div class="peer-collaboration-approvals">${approvals.map((approval) => `
@@ -495,7 +590,38 @@ export function createPeerCollaborationWorkspaceController({
   function bindTranscript(root, { onApprove } = {}) {
     if (!root || transcriptBound) return;
     transcriptBound = true;
+    const activitySelection = new Map();
     root.addEventListener("click", async (event) => {
+      const copyButton = event.target?.closest?.("[data-tool-block-copy]");
+      if (copyButton && root.contains(copyButton)) {
+        const pre = copyButton.closest?.(".tool-activity-block")?.querySelector?.("pre");
+        const original = copyButton.textContent;
+        copyTextAsNormalLines(pre?.textContent || "").then((ok) => {
+          copyButton.textContent = ok ? cr("code.copied") : cr("code.copyFailed");
+          setTimeout(() => { copyButton.textContent = original; }, 1200);
+        });
+        return;
+      }
+      const toggleButton = event.target?.closest?.("[data-tool-block-toggle]");
+      if (toggleButton && root.contains(toggleButton)) {
+        const pre = toggleButton.closest?.(".tool-activity-block")?.querySelector?.("pre");
+        if (!pre) return;
+        const expanded = pre.classList.toggle("is-expanded");
+        toggleButton.textContent = cr(expanded ? "activity.collapseBlock" : "activity.expandBlock");
+        return;
+      }
+      const stepButton = event.target?.closest?.("[data-tool-activity-select]");
+      if (stepButton && root.contains(stepButton)) {
+        const stack = stepButton.closest?.("[data-tool-activity-stack]");
+        const stackKey = String(stack?.dataset?.toolActivityStackKey || "");
+        if (!stack || !stackKey) return;
+        const records = peerTranscriptItems(selectedSnapshot?.selectedAgent?.messages || [])
+          .find((item) => item.type === "tools" && item.stackKey === stackKey)?.tools || [];
+        const next = nextToolActivitySelection(activitySelection.get(stackKey), stepButton.dataset?.toolActivitySelect);
+        activitySelection.set(stackKey, next);
+        renderPeerToolActivitySelection(stack, records, next);
+        return;
+      }
       const button = event.target?.closest?.("[data-peer-approval][data-peer-decision]");
       if (!button || !root.contains(button)) return;
       event.preventDefault();

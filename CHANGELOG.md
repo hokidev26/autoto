@@ -11,7 +11,7 @@ All notable changes to Autoto are tracked here. The project is still an experime
 - Settings → Usage history now has today / 7-day / 30-day / month presets, chart vs records tabs, a stacked provider bar for count and token metrics, grouped usage/performance summaries, and CSV export of the currently loaded rows. Average latency still uses the line chart. Provider names are not truncated, and credentials stay off the page.
 - Plan-mode drafts now go through an isolated reviewer that must return `needs_human` when the plan itself admits the goal was not achieved. That verdict automatically starts one more plan-mode run with the reviewer's correction unless plan reflection is turned off on that conversation (default on; on/off under plan mode in the permission menu); a second `needs_human`, `pass`, `unavailable`, or `block_recommended` still waits for a human. Reviewer pass is still not approval and never creates an execute run.
 - Model settings now include a plan-review model. Leave it blank to follow the active conversation; if a dedicated reviewer cannot be resolved or is not configured, review also uses that conversation model.
-- Shared remote conversations appear under a top-level Remote collaboration rail category, grouped by host. Opening one shows the host's redacted transcript and can send tasks or approvals through the existing peer proxies; remote agent ids never enter local `/api/agents` routes. Settings → Appearance can hide Schedules and Remote collaboration on this device without changing server policy.
+- Shared remote conversations appear under a top-level Remote collaboration rail category, grouped by host. Opening one shows the host's redacted transcript and can send tasks or approvals through the existing peer proxies; remote agent ids never enter local `/api/agents` routes. Settings → Appearance can hide Schedules and Remote collaboration on this device without changing server policy. Tool-result dumps in that transcript use the same collapsible “N steps” activity stack as a local chat.
 
 ### Changed
 
@@ -58,9 +58,11 @@ All notable changes to Autoto are tracked here. The project is still an experime
 - The controller sidebar explains why a paired host snapshot failed (sharing off after restart, expired credential, or unreachable host) and offers retry instead of a generic “could not load” line.
 - The remote-collaboration pairing card no longer leaves a blank second column beside the sharing switch and fingerprint.
 - The Remote collaboration rail category stays visible on the controller even before a pairing has shared any agents.
+- Revoked, expired, and rejected pending invitations can be deleted from settings so inactive codes do not pile up. Open and claimed invitations still have to be revoked or rejected first.
 - Revoked and expired remote-collaboration pairings can be deleted from settings so inactive records do not accumulate. Active pairings still have to be revoked first.
 - Settings → Remote collaboration keeps a gap between the generate-invitation row and the invitation-code card, and between stacked pairing records. The delete control for a revoked pairing sits next to the status badge.
-- The “N steps” activity disclosure keeps its chevron off until hover or keyboard focus, and then shows it on the right instead of the left.
+- The “N steps” activity disclosure keeps its chevron off until hover or keyboard focus, and then shows it on the right instead of the left. Each step row uses the same hover chevron, and clicking it expands that step’s details.
+- On a phone, a project folder’s `+` stays visible and tappable. Desktop still reveals it on hover.
 - Saving project access or a role in Settings → Users now shows a success toast. The save previously reloaded the page with no feedback.
 - Sending a message no longer treats a still-loading model catalog as “not configured”, which replaced the transcript with a setup card collaborators cannot open.
 - The composer’s running-task panel uses the same permission-mode list and remote cap as the main permission control, so **Allow all** is remote-disabled there too until the host allows full remote access.

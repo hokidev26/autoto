@@ -103,6 +103,7 @@ func (s *Server) mountRemoteCollaborationRoutes(router chi.Router) {
 		router.Post("/invitations/{id}/approve", s.approveRemoteCollaborationInvitation)
 		router.Post("/invitations/{id}/reject", s.rejectRemoteCollaborationInvitation)
 		router.Post("/invitations/{id}/revoke", s.revokeRemoteCollaborationInvitation)
+		router.Post("/invitations/{id}/delete", s.deleteRemoteCollaborationInvitation)
 		router.Put("/pairings/{id}/authorization", s.replaceRemoteCollaborationAuthorization)
 		router.Post("/pairings/{id}/revoke", s.revokeRemoteCollaborationPairing)
 		router.Post("/pairings/{id}/delete", s.deleteRemoteCollaborationPairing)
@@ -292,6 +293,34 @@ func (s *Server) rejectRemoteCollaborationInvitation(w http.ResponseWriter, r *h
 
 func (s *Server) revokeRemoteCollaborationInvitation(w http.ResponseWriter, r *http.Request) {
 	s.transitionRemoteCollaborationInvitation(w, r, "invitation.revoke")
+}
+
+func (s *Server) deleteRemoteCollaborationInvitation(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.requireRemoteCollaborationRuntime(w); !ok {
+		return
+	}
+	var request remoteInvitationTransitionRequest
+	if err := decodePeerJSON(w, r, &request); err != nil {
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
+		return
+	}
+	if request.Status != db.RemotePairingInvitationStatusRejected && request.Status != db.RemotePairingInvitationStatusRevoked && request.Status != db.RemotePairingInvitationStatusExpired {
+		s.writeRequestError(w, r, http.StatusBadRequest, errors.New("only rejected, revoked, or expired invitations can be deleted"))
+		return
+	}
+	invitationID := chi.URLParam(r, "id")
+	if err := s.recordRequiredPeerAudit(r.Context(), audit.Event{
+		Category: "peer", Action: "invitation.delete", Actor: "local-api", SubjectType: "peer_invitation", SubjectID: invitationID,
+		Outcome: "success", Risk: "high", Details: map[string]any{"revision": request.Revision, "status": request.Status},
+	}); err != nil {
+		writeError(w, http.StatusInternalServerError, "invitation was not deleted because audit persistence failed")
+		return
+	}
+	if err := s.store.DeleteRemotePairingInvitation(r.Context(), invitationID, request.Status, request.Revision); err != nil {
+		s.writeStoreError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"deleted": true, "id": invitationID})
 }
 
 func (s *Server) transitionRemoteCollaborationInvitation(w http.ResponseWriter, r *http.Request, action string) {

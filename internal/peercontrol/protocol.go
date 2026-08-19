@@ -112,10 +112,12 @@ type SnapshotProject struct {
 	Agents []SnapshotAgent `json:"agents"`
 }
 
-// SnapshotMessage is a bounded conversation projection.
+// SnapshotMessage is a bounded conversation projection. ParentToolUseID is
+// the tool-call id a result belongs to, not raw tool input or output.
 type SnapshotMessage struct {
 	ID              string `json:"id"`
 	RunID           string `json:"runId,omitempty"`
+	ParentToolUseID string `json:"parentToolUseId,omitempty"`
 	Role            string `json:"role"`
 	ContentText     string `json:"contentText"`
 	CompletionState string `json:"completionState,omitempty"`

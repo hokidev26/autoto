@@ -2928,6 +2928,7 @@ test("tool activity renders a lightweight directory before hydrating one auditab
   }
   assert.match(html, /<summary class="tool-activity-summary"><svg class="disclosure-chevron"/);
   assert.match(html, /<svg class="disclosure-chevron"[^>]*>[\s\S]*<path d="m9 6 6 6-6 6">/);
+  assert.match(html, /tool-activity-step-button[\s\S]*?<svg class="disclosure-chevron"/);
   assert.doesNotMatch(html, /tool-activity-card|tool-activity-details|DETAIL_ONLY_OUTPUT|本(?:机|地)服务/);
   assert.doesNotMatch(html, /tool-activity-protected|可审计摘要|可稽核摘要|Auditable summary/);
   assert.doesNotMatch(html, /思维链已加密|chain of thought encrypted/i);

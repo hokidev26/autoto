@@ -11,7 +11,9 @@ const {
   createPeerTargetId,
   normalizePeerSnapshot,
   parsePeerTargetId,
+  parsePeerToolResultMessage,
   peerSnapshotErrorCopy,
+  peerTranscriptItems,
   peerWorkspaceFetchAllowed,
   renderPeerNavigationHTML,
   renderPeerTranscriptHTML,
@@ -183,6 +185,67 @@ test("snapshots keep the host model and thinking strength for composer chrome", 
   assert.equal(conversations[0].model, "google:gemini-3-pro");
   assert.equal(conversations[0].reasoningEffort, "xhigh");
   assert.equal(conversations[0].permissionModeCap, "acceptEdits");
+});
+
+test("remote tool dumps fold into the local step stack instead of user bubbles", () => {
+  const html = renderPeerTranscriptHTML({
+    conversation: {
+      hostName: "Autoto",
+      title: "國鋒專用",
+      scopes: ["observe", "send_task"],
+    },
+    snapshot: normalizePeerSnapshot({
+      selectedAgent: {
+        agentId: "agent-1",
+        messages: [
+          { id: "m1", role: "user", contentText: "改網站", createdAt: "2026-08-19T03:00:00Z" },
+          { id: "m2", role: "assistant", contentText: "我先看 Git。\nTool requested: Bash (call_1)", createdAt: "2026-08-19T03:01:00Z" },
+          {
+            id: "m3",
+            role: "user",
+            parentToolUseId: "call_1",
+            contentText: "Tool Bash (call_1) completed:\n<script>alert(1)</script>\ngit log",
+            createdAt: "2026-08-19T03:01:05Z",
+          },
+          { id: "m4", role: "assistant", contentText: "已切到 main。", createdAt: "2026-08-19T03:02:00Z" },
+        ],
+      },
+    }),
+  });
+  assert.match(html, /data-message-id="m1"/);
+  assert.match(html, /data-message-id="m4"/);
+  assert.match(html, /已切到 main/);
+  assert.match(html, /tool-activity-group/);
+  assert.match(html, /tool-activity-summary/);
+  assert.match(html, /disclosure-chevron/);
+  assert.match(html, /data-tool-activity-select="call_1"/);
+  assert.match(html, /1 個步驟|1 个步骤|1 steps/);
+  assert.doesNotMatch(html, /data-message-id="m3"/);
+  assert.doesNotMatch(html, /peer-collaboration-message[\s\S]*Tool Bash/);
+  assert.doesNotMatch(html, /<script>alert/);
+  assert.match(html, /我先看 Git/);
+  assert.doesNotMatch(html, /Tool requested:/);
+});
+
+test("older hosts without parentToolUseId still fold Tool completed lines into steps", () => {
+  const parsed = parsePeerToolResultMessage({
+    id: "m3",
+    role: "user",
+    contentText: "Tool Bash (call_KCnABMYGlIxEYg1asp1SfWxo) completed:\nHEAD is now at 28a29ae",
+  });
+  assert.equal(parsed.toolName, "Bash");
+  assert.equal(parsed.toolUseId, "call_KCnABMYGlIxEYg1asp1SfWxo");
+  assert.equal(parsed.status, "completed");
+  assert.match(parsed.output, /HEAD is now at 28a29ae/);
+  const items = peerTranscriptItems([
+    { id: "m1", role: "user", contentText: "改網站" },
+    { id: "m3", role: "user", contentText: "Tool Bash (call_1) completed:\ngit stash" },
+    { id: "m4", role: "assistant", contentText: "好了" },
+  ]);
+  assert.equal(items.length, 3);
+  assert.equal(items[1].type, "tools");
+  assert.equal(items[1].tools.length, 1);
+  assert.equal(items[1].stackKey, "peer:m3");
 });
 
 test("the remote transcript uses the local left-aligned chat flow", () => {

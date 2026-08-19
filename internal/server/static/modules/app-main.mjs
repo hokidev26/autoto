@@ -3745,6 +3745,11 @@ function renderProjects() {
     });
   });
   el.querySelectorAll("[data-project-fork-trigger]").forEach((node) => {
+    node.addEventListener("mousedown", (event) => {
+      // The project row is draggable. Without this, WebView starts a drag on
+      // mousedown and the click that should create a conversation never fires.
+      event.stopPropagation();
+    });
     node.addEventListener("click", (event) => {
       // The row itself is a button; without this the fork would also switch
       // the selection out from under the request.

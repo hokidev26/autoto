@@ -1003,7 +1003,8 @@ body.white-shell.theme-light.theme-dark .navigation-boundary-empty button {
 .tool-activity-summary::-webkit-details-marker { display: none; }
 .tool-activity-summary .disclosure-chevron,
 .tool-activity-details > summary .disclosure-chevron,
-.plan-card-head .disclosure-chevron {
+.plan-card-head .disclosure-chevron,
+.tool-activity-step-button .disclosure-chevron {
   width: 13px;
   height: 13px;
   flex: 0 0 13px;
@@ -1016,7 +1017,8 @@ body.white-shell.theme-light.theme-dark .navigation-boundary-empty button {
 }
 .tool-activity-group[open] > .tool-activity-summary .disclosure-chevron,
 .tool-activity-details[open] > summary .disclosure-chevron,
-.plan-card-disclosure[open] > .plan-card-head .disclosure-chevron {
+.plan-card-disclosure[open] > .plan-card-head .disclosure-chevron,
+.tool-activity-step.selected > .tool-activity-step-button .disclosure-chevron {
   transform: rotate(90deg);
 }
 
@@ -1026,8 +1028,11 @@ body.white-shell.theme-light.theme-dark .navigation-boundary-empty button {
 }
 
 @media (hover: hover) {
-  .tool-activity-summary .disclosure-chevron { opacity: 0; }
-  .tool-activity-summary:is(:hover, :focus-visible) .disclosure-chevron { opacity: 1; }
+  .tool-activity-summary .disclosure-chevron,
+  .tool-activity-step-button .disclosure-chevron { opacity: 0; }
+  .tool-activity-summary:is(:hover, :focus-visible) .disclosure-chevron,
+  .tool-activity-step-button:is(:hover, :focus-visible) .disclosure-chevron,
+  .tool-activity-step.selected > .tool-activity-step-button .disclosure-chevron { opacity: 1; }
 }
 
 
@@ -1052,7 +1057,7 @@ body.white-shell.theme-light.theme-dark .navigation-boundary-empty button {
   width: 100%;
   min-width: 0;
   min-height: 22px;
-  grid-template-columns: 16px minmax(0, 1fr);
+  grid-template-columns: 16px minmax(0, 1fr) 13px;
   align-items: center;
   gap: 8px;
   padding: 3px 4px;
@@ -1063,6 +1068,10 @@ body.white-shell.theme-light.theme-dark .navigation-boundary-empty button {
   font: inherit;
   text-align: left;
   cursor: pointer;
+}
+
+.tool-activity-step-button .disclosure-chevron {
+  justify-self: end;
 }
 
 .tool-activity-step-button:hover {

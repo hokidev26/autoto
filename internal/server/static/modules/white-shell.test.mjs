@@ -1093,9 +1093,15 @@ test("desktop conversation layout follows the compact resizable geometry", async
   assert.match(styles, /@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*?\.navigation-disclosure svg\s*\{\s*transition:\s*none/);
   assert.match(styles, /\.tool-activity-summary \.disclosure-chevron,[\s\S]*?stroke-width:\s*1\.5/);
   assert.match(styles, /\.tool-activity-group\[open\] > \.tool-activity-summary \.disclosure-chevron,[\s\S]*?transform:\s*rotate\(90deg\)/);
+  assert.match(styles, /\.tool-activity-step\.selected > \.tool-activity-step-button \.disclosure-chevron/);
+  assert.match(styles, /\.tool-activity-step-button \{[\s\S]*?grid-template-columns:\s*16px minmax\(0, 1fr\) 13px/);
   assert.match(styles, /\.tool-activity-summary \.disclosure-chevron \{[\s\S]*?order:\s*2;[\s\S]*?margin-inline-start:\s*auto/);
-  assert.match(styles, /@media \(hover: hover\) \{[\s\S]*?\.tool-activity-summary \.disclosure-chevron \{ opacity: 0; \}/);
-  assert.match(styles, /\.tool-activity-summary:is\(:hover, :focus-visible\) \.disclosure-chevron \{ opacity: 1; \}/);
+  assert.match(styles, /@media \(hover: hover\) \{[\s\S]*?\.tool-activity-summary \.disclosure-chevron,[\s\S]*?\.tool-activity-step-button \.disclosure-chevron \{ opacity: 0; \}/);
+  assert.match(styles, /\.tool-activity-summary:is\(:hover, :focus-visible\) \.disclosure-chevron,[\s\S]*?\.tool-activity-step-button:is\(:hover, :focus-visible\) \.disclosure-chevron/);
+  assert.match(styles, /@media \(hover: none\) \{\s*\.navigation-project-row > \.navigation-row-fork \{\s*opacity:\s*1/);
+  assert.match(styles, /@media \(hover: none\) \{[\s\S]*?body\.white-shell\.theme-light \.navigation-project-row > \.navigation-row-fork \{\s*pointer-events:\s*auto/);
+  assert.match(styles, /@media \(pointer: coarse\) \{\s*\.navigation-project-row > \.navigation-row-fork \{\s*min-width:\s*32px/);
+  assert.match(appMain, /querySelectorAll\("\[data-project-fork-trigger\]"\)[\s\S]*?addEventListener\("mousedown"/);
   assert.match(styles, /\.plan-card-head \.disclosure-chevron/);
   assert.match(styles, /body\.white-shell\.theme-light \.plan-card-feedback textarea\s*\{[\s\S]*?background:\s*var\(--ws-input\)/);
   assert.doesNotMatch(styles, /\.plan-card-feedback textarea \{[^}]*rgba\(17, 19, 24/);

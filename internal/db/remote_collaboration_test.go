@@ -172,6 +172,49 @@ func TestRemotePairingClaimApproveAndRevoke(t *testing.T) {
 	}
 }
 
+func TestRemotePairingInvitationDeleteRequiresInactiveStatus(t *testing.T) {
+	ctx := context.Background()
+	store := openRemoteCollaborationTestStore(t, ctx)
+	defer store.Close()
+
+	open := createRemoteInvitation(t, ctx, store, "open-delete-code", time.Now().UTC().Add(time.Hour))
+	if err := store.DeleteRemotePairingInvitation(ctx, open.ID, open.Status, open.Revision); err == nil || !strings.Contains(err.Error(), "inactive remote pairing invitation") {
+		t.Fatalf("open invitation delete was accepted: %v", err)
+	}
+
+	revoked, err := store.RevokeRemotePairingInvitation(ctx, open.ID, open.Status, open.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DeleteRemotePairingInvitation(ctx, revoked.ID, RemotePairingInvitationStatusOpen, revoked.Revision); err == nil || !strings.Contains(err.Error(), "inactive remote pairing invitation") {
+		t.Fatalf("open expected status was accepted: %v", err)
+	}
+	if err := store.DeleteRemotePairingInvitation(ctx, revoked.ID, revoked.Status, revoked.Revision+1); !IsConflict(err) {
+		t.Fatalf("expected invitation delete revision conflict, got %v", err)
+	}
+	if err := store.DeleteRemotePairingInvitation(ctx, revoked.ID, revoked.Status, revoked.Revision); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.GetRemotePairingInvitation(ctx, revoked.ID); !IsNotFound(err) {
+		t.Fatalf("deleted invitation still readable: %v", err)
+	}
+
+	expired := createRemoteInvitation(t, ctx, store, "expired-delete-code", time.Now().UTC().Add(time.Hour))
+	createdAt := time.Now().UTC().Add(-2 * time.Hour).Format(timestampLayout)
+	expiresAt := time.Now().UTC().Add(-time.Hour).Format(timestampLayout)
+	updatedAt := Now()
+	if _, err := store.DB().ExecContext(ctx, `UPDATE remote_pairing_invitations SET created_at = ?, expires_at = ?, updated_at = ? WHERE id = ?`, createdAt, expiresAt, updatedAt, expired.ID); err != nil {
+		t.Fatal(err)
+	}
+	expiredState, err := store.ExpireRemotePairingInvitation(ctx, expired.ID, RemotePairingInvitationStatusOpen, expired.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DeleteRemotePairingInvitation(ctx, expiredState.ID, expiredState.Status, expiredState.Revision); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRemotePairingSamePeerCanReconnectWithoutConflict(t *testing.T) {
 	ctx := context.Background()
 	store := openRemoteCollaborationTestStore(t, ctx)

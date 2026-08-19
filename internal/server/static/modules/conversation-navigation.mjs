@@ -746,6 +746,7 @@ function navigationWorklineConversationTrigger(worklineId) {
 
 // Distinct from the sidebar-header "+", which opens the directory flow, and from
 // the conversation-row "+" which adds another chat on the same workline.
+// Desktop reveals this on hover; phones keep it visible via (hover: none) CSS.
 function navigationForkTrigger(projectId) {
   const label = t("shell.newWorkline");
   return `<button class="navigation-row-fork" type="button" data-project-fork-trigger data-project-id-fork="${escapeNavigationHtml(projectId)}" aria-label="${escapeNavigationHtml(label)}" title="${escapeNavigationHtml(label)}">+</button>`;
