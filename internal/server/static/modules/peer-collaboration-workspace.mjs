@@ -4,10 +4,12 @@ import { formatCompactRelativeTime, navigationAgentStatusClass, navigationStatus
 import { formatTimestamp } from "./formatters.mjs";
 import { t } from "./i18n.mjs";
 import { t as cr } from "./messages-chat-rendering-extra.mjs";
+import { renderMarkdown } from "./chat-rendering-markdown.mjs";
 import { transcriptMessageText } from "./chat-rendering-messages.mjs";
 import {
   nextToolActivitySelection,
   normalizeToolActivity,
+  persistedReasoningSteps,
   renderToolActivityCardHTML,
   renderToolActivityStackHTML,
 } from "./chat-rendering-tools.mjs";
@@ -92,6 +94,7 @@ export function normalizePeerSnapshot(value = {}, pairingId = "") {
         parentToolUseId: textValue(message?.parentToolUseId || message?.parentToolID),
         role: textValue(message?.role, "assistant").toLowerCase(),
         contentText: String(message?.contentText ?? message?.content ?? ""),
+        reasoningText: String(message?.reasoningText ?? message?.reasoning_text ?? ""),
         createdAt: textValue(message?.createdAt),
       })),
       hasMoreMessages: Boolean(selected.hasMoreMessages),
@@ -165,30 +168,42 @@ export function parsePeerToolResultMessage(message = {}) {
 
 export function peerTranscriptItems(messages = []) {
   const items = [];
-  let pending = [];
-  const flushTools = () => {
-    if (!pending.length) return;
-    const stackKey = `peer:${pending[0].messageId || pending[0].toolUseId}`;
-    items.push({ type: "tools", stackKey, tools: pending });
-    pending = [];
+  let pendingTools = [];
+  let pendingReasoningMessages = [];
+  const flushTools = (extraMessage = null) => {
+    const reasoningSource = extraMessage
+      ? pendingReasoningMessages.concat(extraMessage)
+      : pendingReasoningMessages;
+    const reasoningSteps = reasoningSource.flatMap((message) => persistedReasoningSteps(message, pendingTools));
+    if (!pendingTools.length && !reasoningSteps.length) {
+      pendingReasoningMessages = [];
+      return;
+    }
+    const stackKey = pendingTools.length
+      ? `peer:${pendingTools[0].messageId || pendingTools[0].toolUseId}`
+      : `peer:reasoning:${reasoningSource[0]?.id || reasoningSteps[0]?.id || "stack"}`;
+    items.push({ type: "tools", stackKey, tools: pendingTools, reasoningSteps });
+    pendingTools = [];
+    pendingReasoningMessages = [];
   };
   for (const message of Array.isArray(messages) ? messages : []) {
     const tool = parsePeerToolResultMessage(message);
     if (tool) {
-      pending.push(tool);
+      pendingTools.push(tool);
       continue;
     }
     const text = transcriptMessageText(message);
+    const assistant = String(message?.role || "").toLowerCase() === "assistant";
+    if (assistant && !text.trim()) {
+      pendingReasoningMessages.push(message);
+      continue;
+    }
+    flushTools(assistant ? message : null);
     if (!text.trim()) continue;
-    flushTools();
     items.push({ type: "message", message, text });
   }
   flushTools();
   return items;
-}
-
-function transcriptBody(text) {
-  return escapeHtml(text).replace(/\r\n|\r|\n/g, "<br>");
 }
 
 function renderPeerMessageHTML(message, text) {
@@ -208,7 +223,7 @@ function renderPeerMessageHTML(message, text) {
             ${sender}
             ${time}
           </div>
-          <div class="message-content">${transcriptBody(text)}</div>
+          <div class="message-content">${renderMarkdown(text)}</div>
         </div>`;
 }
 
@@ -219,6 +234,7 @@ function renderPeerToolActivityHTML(item) {
     tail: false,
     stackKey: item.stackKey,
     runId: item.tools.map((tool) => tool.runId).find(Boolean) || "",
+    reasoningSteps: Array.isArray(item.reasoningSteps) ? item.reasoningSteps : [],
   });
   return `<div class="message-tool-activity" data-message-activity="${escapeAttr(item.stackKey)}">${stack}</div>`;
 }
@@ -592,6 +608,15 @@ export function createPeerCollaborationWorkspaceController({
     transcriptBound = true;
     const activitySelection = new Map();
     root.addEventListener("click", async (event) => {
+      const copyCode = event.target?.closest?.(".copy-code");
+      if (copyCode && root.contains(copyCode)) {
+        const original = copyCode.textContent;
+        copyTextAsNormalLines(copyCode.dataset?.code || "").then((ok) => {
+          copyCode.textContent = ok ? cr("code.copied") : cr("code.copyFailed");
+          setTimeout(() => { copyCode.textContent = original; }, 1200);
+        });
+        return;
+      }
       const copyButton = event.target?.closest?.("[data-tool-block-copy]");
       if (copyButton && root.contains(copyButton)) {
         const pre = copyButton.closest?.(".tool-activity-block")?.querySelector?.("pre");

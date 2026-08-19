@@ -21,6 +21,7 @@ import {
   globalRailCollapsedWidth,
   globalRailExpandedWidth,
   groupModelSelectOptions,
+  modelSelectOptionsForMenu,
   maxSidebarWidth,
   navigationDragColumnsEnterWidth,
   navigationDragColumnsExitWidth,
@@ -61,6 +62,7 @@ const appMainStreamURL = new URL("modules/app-main-stream.mjs", staticRoot);
 const navigationOrderURL = new URL("modules/navigation-order.mjs", staticRoot);
 const chatRenderingSplitURLs = [
   chatRenderingURL,
+  new URL("modules/chat-rendering-markdown.mjs", staticRoot),
   new URL("modules/chat-rendering-messages.mjs", staticRoot),
   new URL("modules/chat-rendering-tools.mjs", staticRoot),
   new URL("modules/chat-rendering-tools-normalize.mjs", staticRoot),
@@ -2766,6 +2768,15 @@ test("finishing a run no longer auto-opens the run summary review card", async (
   assert.match(appMain, /const summary = await loadRunSummary\(run\.id, \{ agentId: run\.agentId \}\);/);
 });
 
+test("model picker menu omits hidden and unavailable current-model placeholders", () => {
+  const listed = modelSelectOptionsForMenu([
+    { value: "relay:old-key-model", hidden: true, disabled: true, textContent: "relay:old-key-model（目前不可用）" },
+    { value: "relay:new-key-model", hidden: false, disabled: false, textContent: "new-key-model", dataset: { provider: "relay" } },
+    { value: "relay:broken", hidden: false, disabled: true, textContent: "broken" },
+  ]);
+  assert.deepEqual(listed.map((option) => option.value), ["relay:new-key-model"]);
+});
+
 test("model picker groups every provider once and lists all of its models underneath", async () => {
   const qionggemeGroup = { label: "qionggeme" };
   const lanyangyangGroup = { label: "lanyangyang" };
@@ -2787,6 +2798,7 @@ test("model picker groups every provider once and lists all of its models undern
     readStylesSource(stylesURL),
     readFile(selectMenusURL, "utf8"),
   ]);
+  assert.match(selectMenus, /modelSelectOptionsForMenu\(binding\.select\.options\)/);
   assert.match(selectMenus, /groupModelSelectOptions\(options\)\.forEach/);
   assert.match(selectMenus, /appendModelOptionGroups\(binding, options, \{ mobile: true \}\)/);
   assert.match(selectMenus, /appendModelOptionGroups\(binding, menu\)/);

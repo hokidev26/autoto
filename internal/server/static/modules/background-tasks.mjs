@@ -1,5 +1,5 @@
 import { escapeAttr, escapeHtml, setHTMLIfChanged, setTextIfChanged } from "./dom.mjs";
-import { groupModelSelectOptions, modelOptionPresentation, permissionMenuPrimaryValues } from "./ui-shell.mjs";
+import { groupModelSelectOptions, modelOptionPresentation, modelSelectOptionsForMenu, permissionMenuPrimaryValues } from "./ui-shell.mjs";
 import { formatDuration, formatTimestamp } from "./formatters.mjs";
 import { t } from "./i18n.mjs";
 import { normalizeMessageProfileIdentity } from "./chat-rendering-messages.mjs";
@@ -1459,7 +1459,9 @@ export function createBackgroundTasksController({
       });
       menu.appendChild(button);
     };
-    const visibleOptions = [...(select.options || [])].filter((option) => !option.hidden);
+    const visibleOptions = isModelMenu
+      ? modelSelectOptionsForMenu(select.options || [])
+      : [...(select.options || [])].filter((option) => !option.hidden);
     if (isModelMenu) {
       // Provider heading above its models, exactly the way the main chat's
       // model menu groups them.

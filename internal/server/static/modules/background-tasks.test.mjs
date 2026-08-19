@@ -983,6 +983,7 @@ test("subagent pills are borderless triggers that open the composer-style menu",
   assert.match(source, /new EventCtor\("change", \{ bubbles: true \}\)/, "choosing must dispatch a bubbling change for the tray delegation");
   // The model menu groups by provider like the main chat's: a provider heading
   // above its models, rendered with the composer's own grouping helpers.
+  assert.match(source, /modelSelectOptionsForMenu\(select\.options \|\| \[\]\)/, "unavailable current-model placeholders stay out of the picker");
   assert.match(source, /groupModelSelectOptions\(visibleOptions\)/, "the model menu must group options by provider");
   assert.match(source, /composer-model-group-heading/, "provider headings must reuse the composer heading class");
   assert.match(source, /modelOptionPresentation\(option\.value, option\.textContent\)\.name/, "model rows show the model name; the provider lives in the heading");

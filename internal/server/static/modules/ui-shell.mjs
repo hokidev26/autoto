@@ -133,6 +133,14 @@ export function modelOptionPresentation(value, label) {
   };
 }
 
+// A conversation can stay bound to a model the live catalog no longer offers
+// (API-key rotation is the usual case). That binding is kept as a selected
+// hidden/disabled option so the closed chip can still say it is unavailable.
+// The open picker must not list it as a choice.
+export function modelSelectOptionsForMenu(options = []) {
+  return [...options].filter((option) => !option?.hidden && !option?.disabled);
+}
+
 export function groupModelSelectOptions(options = []) {
   const groups = [];
   const byProvider = new Map();

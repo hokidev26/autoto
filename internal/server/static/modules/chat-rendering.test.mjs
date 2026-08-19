@@ -1140,14 +1140,26 @@ test("ordinary error and failed runs render one escaped line carrying retry and 
   }
 });
 
-test("user-stopped interrupted runs show a short transcript notice while superseded runs stay hidden", () => {
+test("user-stopped interrupted runs do not add a transcript notice; superseded runs stay hidden", () => {
   const interrupted = renderSnapshot([], {
     activeRunSummaryRunId: "run-interrupted",
     activeRunSummary: { run: { id: "run-interrupted", source: "conversation", status: "interrupted" }, toolCalls: [], recentMessages: [] },
   });
-  assert.match(interrupted.html, /conversation-run-notice interrupted/);
-  assert.ok(interrupted.html.includes("这轮已停止") || interrupted.html.includes("這輪已停止") || interrupted.html.includes("This turn was stopped."));
+  assert.doesNotMatch(interrupted.html, /conversation-run-notice interrupted/);
+  assert.ok(!interrupted.html.includes("这轮已停止") && !interrupted.html.includes("這輪已停止") && !interrupted.html.includes("This turn was stopped."));
   assert.doesNotMatch(interrupted.html, /已有消息和工具记录仍保留|This response was interrupted/);
+
+  const userStop = renderSnapshot([], {
+    activeRunSummaryRunId: "run-interrupted-user",
+    activeRunSummary: {
+      run: { id: "run-interrupted-user", source: "conversation", status: "interrupted", errorMessage: "interrupted by user" },
+      toolCalls: [{ runId: "run-interrupted-user", toolUseId: "bash-1", toolName: "Bash", status: "interrupted" }],
+      recentMessages: [],
+    },
+  });
+  assert.match(userStop.html, /data-tool-activity-select="bash-1"/);
+  assert.doesNotMatch(userStop.html, /conversation-run-notice interrupted/);
+  assert.doesNotMatch(userStop.html, /这轮已停止|這輪已停止|This turn was stopped\./);
 
   const superseded = renderSnapshot([], {
     activeRunSummaryRunId: "run-superseded",
@@ -4848,7 +4860,7 @@ test("interrupted conversation runs show the reason they stopped", () => {
   assert.doesNotMatch(html, /已有消息和工具记录仍保留|This response was interrupted/);
 });
 
-test("interrupted conversation runs with no reason show a short stopped notice", () => {
+test("interrupted conversation runs with no reason do not add a stopped notice", () => {
   const { html } = renderSnapshot([], {
     activeRunSummaryRunId: "run-interrupted-plain",
     activeRunSummary: {
@@ -4858,8 +4870,8 @@ test("interrupted conversation runs with no reason show a short stopped notice",
     },
   });
 
-  assert.match(html, /conversation-run-notice interrupted/);
-  assert.ok(html.includes("这轮已停止") || html.includes("這輪已停止") || html.includes("This turn was stopped."));
+  assert.doesNotMatch(html, /conversation-run-notice interrupted/);
+  assert.doesNotMatch(html, /这轮已停止|這輪已停止|This turn was stopped\./);
   assert.doesNotMatch(html, /本轮已中断；已有消息和工具记录仍保留|本輪已中斷；已有訊息與工具記錄仍保留|This response was interrupted/);
   assert.doesNotMatch(html, /本轮未能完成回复/);
 
@@ -4871,8 +4883,8 @@ test("interrupted conversation runs with no reason show a short stopped notice",
       recentMessages: [],
     },
   });
-  assert.match(userStop.html, /conversation-run-notice interrupted/);
-  assert.ok(userStop.html.includes("这轮已停止") || userStop.html.includes("這輪已停止") || userStop.html.includes("This turn was stopped."));
+  assert.doesNotMatch(userStop.html, /conversation-run-notice interrupted/);
+  assert.doesNotMatch(userStop.html, /这轮已停止|這輪已停止|This turn was stopped\./);
   assert.doesNotMatch(userStop.html, /本轮已中断；已有消息和工具记录仍保留|This response was interrupted/);
 });
 

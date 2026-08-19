@@ -7,6 +7,7 @@ import {
   compactComposerModelLabel,
   groupModelSelectOptions,
   modelOptionPresentation,
+  modelSelectOptionsForMenu,
   orderPermissionMenuOptions,
   permissionMenuPrimaryValues,
 } from "./ui-shell.mjs";
@@ -438,7 +439,7 @@ export function createComposerSelectMenus({
     };
 
     const appendModelOptionGroups = (binding, target, { mobile = false } = {}) => {
-      const options = [...binding.select.options].filter((option) => !option.hidden);
+      const options = modelSelectOptionsForMenu(binding.select.options);
       groupModelSelectOptions(options).forEach((group, index) => {
         const heading = document.createElement("div");
         heading.className = [
@@ -691,8 +692,8 @@ export function createComposerSelectMenus({
     // Summary model picker. Empty on the conversation inherits the host
     // default; choosing a model writes an override on this conversation so
     // collaborators can retarget compaction without host Settings.
-    const summaryModelOptions = (binding) => [...binding.select.options]
-      .filter((option) => !option.hidden && String(option.value || "").trim());
+    const summaryModelOptions = (binding) => modelSelectOptionsForMenu(binding.select.options)
+      .filter((option) => String(option.value || "").trim());
 
     // The same model name can be served by several providers, so the summary
     // picker mirrors the main model menu: provider headings above their models,

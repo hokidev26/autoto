@@ -133,6 +133,75 @@ test("the remote transcript escapes host text and hides approvals the grant does
   assert.doesNotMatch(html, /data-peer-decision/);
 });
 
+test("the remote transcript renders markdown lists and inline code like a local chat", () => {
+  const html = renderPeerTranscriptHTML({
+    conversation: {
+      hostName: "Autoto",
+      title: "國鋒專用",
+      scopes: ["observe"],
+    },
+    snapshot: normalizePeerSnapshot({
+      selectedAgent: {
+        agentId: "agent-1",
+        messages: [{
+          id: "m1",
+          role: "assistant",
+          contentText: [
+            "目前狀態：",
+            "",
+            "- 本地 **main**：`28a29ae`",
+            "- 遠端 `origin/main`",
+            "",
+            "我也保留了可回復資料：",
+            "",
+            "- `b46451a`",
+            "",
+            "詳見 [文件](https://example.com/docs) 與 [click](javascript:alert(1))。",
+          ].join("\n"),
+          createdAt: "2026-08-19T03:00:00Z",
+        }],
+      },
+    }),
+  });
+  assert.match(html, /<ul>/);
+  assert.match(html, /<li>/);
+  assert.match(html, /<strong>main<\/strong>/);
+  assert.match(html, /<code class="inline-code">28a29ae<\/code>/);
+  assert.match(html, /<code class="inline-code">origin\/main<\/code>/);
+  assert.match(html, /<code class="inline-code">b46451a<\/code>/);
+  assert.match(html, /<a href="https:\/\/example\.com\/docs" target="_blank" rel="noopener noreferrer">文件<\/a>/);
+  assert.match(html, /\[click\]\(javascript:alert\(1\)\)/);
+  assert.doesNotMatch(html, /href="javascript:/);
+  assert.doesNotMatch(html, /-\s+本地/);
+  assert.doesNotMatch(html, /`28a29ae`/);
+  assert.doesNotMatch(html, /\*\*main\*\*/);
+});
+
+test("the remote transcript keeps fenced code copyable without printing fence markers", () => {
+  const html = renderPeerTranscriptHTML({
+    conversation: {
+      hostName: "Autoto",
+      title: "國鋒專用",
+      scopes: ["observe"],
+    },
+    snapshot: normalizePeerSnapshot({
+      selectedAgent: {
+        agentId: "agent-1",
+        messages: [{
+          id: "m1",
+          role: "assistant",
+          contentText: "```js\nconst x = 1;\n```",
+          createdAt: "2026-08-19T03:00:00Z",
+        }],
+      },
+    }),
+  });
+  assert.match(html, /class="code-block"/);
+  assert.match(html, /class="copy-code"/);
+  assert.match(html, /class="tok-keyword">const<\/span>/);
+  assert.doesNotMatch(html, /```js/);
+});
+
 test("send_task and approve_once grants surface the matching controls", () => {
   const html = renderPeerTranscriptHTML({
     conversation: {
@@ -227,6 +296,54 @@ test("remote tool dumps fold into the local step stack instead of user bubbles",
   assert.doesNotMatch(html, /Tool requested:/);
 });
 
+test("remote transcripts put host reasoning into the step stack instead of dropping it", () => {
+  const html = renderPeerTranscriptHTML({
+    conversation: {
+      hostName: "Autoto",
+      title: "國鋒專用",
+      scopes: ["observe"],
+    },
+    snapshot: normalizePeerSnapshot({
+      selectedAgent: {
+        agentId: "agent-1",
+        messages: [
+          { id: "m1", role: "user", contentText: "改網站", createdAt: "2026-08-19T03:00:00Z" },
+          {
+            id: "m2",
+            role: "assistant",
+            contentText: "",
+            reasoningText: "先確認目前分支。\n<script>alert(1)</script>",
+            createdAt: "2026-08-19T03:01:00Z",
+          },
+          {
+            id: "m3",
+            role: "user",
+            parentToolUseId: "call_1",
+            contentText: "Tool Bash (call_1) completed:\ngit status",
+            createdAt: "2026-08-19T03:01:05Z",
+          },
+          {
+            id: "m4",
+            role: "assistant",
+            contentText: "已切到 main。",
+            reasoningText: "工具結果夠了，可以直接回。",
+            createdAt: "2026-08-19T03:02:00Z",
+          },
+        ],
+      },
+    }),
+  });
+  assert.match(html, /tool-activity-reasoning-step/);
+  assert.match(html, /tool-activity-icon-thinking/);
+  assert.match(html, /先確認目前分支/);
+  assert.match(html, /工具結果夠了/);
+  assert.match(html, /思考 2 · 1 個步驟|思考 2 · 1 个步骤|Thought 2 · 1 steps/);
+  assert.match(html, /已切到 main/);
+  assert.doesNotMatch(html, /data-message-id="m2"/);
+  assert.doesNotMatch(html, /<script>alert/);
+  assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+});
+
 test("older hosts without parentToolUseId still fold Tool completed lines into steps", () => {
   const parsed = parsePeerToolResultMessage({
     id: "m3",
@@ -246,6 +363,7 @@ test("older hosts without parentToolUseId still fold Tool completed lines into s
   assert.equal(items[1].type, "tools");
   assert.equal(items[1].tools.length, 1);
   assert.equal(items[1].stackKey, "peer:m3");
+  assert.deepEqual(items[1].reasoningSteps, []);
 });
 
 test("the remote transcript uses the local left-aligned chat flow", () => {

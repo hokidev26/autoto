@@ -134,7 +134,7 @@ func TestPeerSnapshotOmitsWorkspacePromptAndRawToolInput(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := store.AddMessage(context.Background(), db.Message{
-		AgentID: agent.ID, Role: "assistant", ContentText: "safe response", ContentJSON: json.RawMessage(`[{"type":"text","text":"private structured content"}]`),
+		AgentID: agent.ID, Role: "assistant", ContentText: "safe response", ReasoningText: "check the layout first", ContentJSON: json.RawMessage(`[{"type":"text","text":"private structured content"}]`),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -165,6 +165,9 @@ func TestPeerSnapshotOmitsWorkspacePromptAndRawToolInput(t *testing.T) {
 	}
 	if !strings.Contains(payload, `"approvalId":"approval-1"`) || !strings.Contains(payload, `"contentText":"safe response"`) {
 		t.Fatalf("snapshot omitted safe projection fields: %s", payload)
+	}
+	if !strings.Contains(payload, `"reasoningText":"check the layout first"`) {
+		t.Fatalf("snapshot omitted the user-facing reasoning used by the step stack: %s", payload)
 	}
 	if !strings.Contains(payload, `"parentToolUseId":"call-safe-1"`) {
 		t.Fatalf("snapshot omitted the tool-result parent id: %s", payload)

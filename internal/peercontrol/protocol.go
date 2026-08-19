@@ -114,12 +114,15 @@ type SnapshotProject struct {
 
 // SnapshotMessage is a bounded conversation projection. ParentToolUseID is
 // the tool-call id a result belongs to, not raw tool input or output.
+// ReasoningText is the same user-facing thinking the local step stack shows;
+// it is redacted like ContentText and still omits provider-native state.
 type SnapshotMessage struct {
 	ID              string `json:"id"`
 	RunID           string `json:"runId,omitempty"`
 	ParentToolUseID string `json:"parentToolUseId,omitempty"`
 	Role            string `json:"role"`
 	ContentText     string `json:"contentText"`
+	ReasoningText   string `json:"reasoningText,omitempty"`
 	CompletionState string `json:"completionState,omitempty"`
 	StopReason      string `json:"stopReason,omitempty"`
 	CreatedAt       string `json:"createdAt"`

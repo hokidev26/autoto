@@ -2414,8 +2414,11 @@ export function createModelProviderSettingsController({
       return `<optgroup label="${escapeAttr(groupLabel)}">${options}</optgroup>`;
     }).join("");
     const currentModel = pendingModelSelection() || currentModelValue();
+    // Keep a hidden selected option when this conversation is still bound to a
+    // model the catalog no longer offers, so the closed chip can show it as
+    // unavailable. The open menu filters hidden/disabled options out.
     const currentOption = currentModel && !optionValues.includes(currentModel)
-      ? `<option value="${escapeAttr(currentModel)}" data-configured="false" data-runtime-available="false" disabled>${escapeHtml(currentModel + mt("currentHidden"))}</option>`
+      ? currentModelUnavailableOption(currentModel)
       : "";
     // Rebuilding the select tears every option out and puts it back, which
     // reads as a flicker on the composer. Switching a conversation renders this
@@ -2588,11 +2591,15 @@ export function createModelProviderSettingsController({
     return mt("codexProviderConnected", { count });
   }
 
+  function currentModelUnavailableOption(currentModel) {
+    return `<option value="${escapeAttr(currentModel)}" data-configured="false" data-runtime-available="false" hidden disabled>${escapeHtml(currentModel + mt("currentHidden"))}</option>`;
+  }
+
   function renderAgentModelOptions(currentModel) {
     const options = allModelOptions();
     const values = new Set(options.map((item) => item.value));
     const currentOption = currentModel && !values.has(currentModel)
-      ? `<option value="${escapeAttr(currentModel)}" disabled>${escapeHtml(currentModel + mt("currentHidden"))}</option>`
+      ? currentModelUnavailableOption(currentModel)
       : "";
     const grouped = selectableModelProviders().map((provider) => {
       const models = providerModelList(provider);

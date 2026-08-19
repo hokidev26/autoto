@@ -1523,13 +1523,64 @@ test("运行时不可用或未注册的 Provider 只保留当前模型占位，�
     });
 
     const options = controller.renderAgentModelOptions("offline:stale-model");
-    assert.match(options, /value="offline:stale-model" disabled/);
+    assert.match(options, /value="offline:stale-model"[^>]*\bhidden\b/);
+    assert.match(options, /value="offline:stale-model"[^>]*\bdisabled\b/);
     assert.match(options, /当前不可用|currently unavailable/i);
     assert.doesNotMatch(options, /<optgroup[^>]*>[^]*offline:stale-model/);
     assert.match(options, /live:ready-model/);
     assert.equal(controller.selectedModelValue(), "live:ready-model");
     assert.equal(controller.isCurrentModelConfigured("offline:stale-model"), false);
     assert.equal(controller.isCurrentModelConfigured("live:ready-model"), true);
+  } finally {
+    globalThis.document = previousDocument;
+  }
+});
+
+test("换钥后目录已没有的当前模型不会出现在对话选择器分组里", () => {
+  const previousDocument = globalThis.document;
+  const modelSelect = {
+    value: "relay:old-key-model",
+    innerHTML: "",
+    title: "",
+    classList: { toggle() {} },
+  };
+  globalThis.document = { getElementById(id) { return id === "modelSelect" ? modelSelect : null; } };
+  try {
+    const controller = createModelProviderSettingsController({
+      state: {
+        settings: {
+          providers: [{
+            name: "relay",
+            type: "openai-compatible",
+            origin: "custom",
+            enabled: true,
+            configured: true,
+            model: "new-key-model",
+            models: ["new-key-model"],
+          }],
+        },
+        modelCatalog: {
+          providers: [{
+            name: "relay",
+            type: "openai-compatible",
+            origin: "custom",
+            enabled: true,
+            configured: true,
+            runtimeAvailable: true,
+            registered: true,
+            models: ["new-key-model"],
+          }],
+        },
+        agent: { id: "agent-1", model: "relay:old-key-model" },
+      },
+    });
+
+    controller.renderModelOptions();
+    assert.match(modelSelect.innerHTML, /value="relay:old-key-model"[^>]*\bhidden\b/);
+    assert.match(modelSelect.innerHTML, /value="relay:old-key-model"[^>]*\bdisabled\b/);
+    assert.match(modelSelect.innerHTML, /当前不可用|currently unavailable/i);
+    assert.doesNotMatch(modelSelect.innerHTML, /<optgroup[^>]*>[^]*relay:old-key-model/);
+    assert.match(modelSelect.innerHTML, /<optgroup[^>]*>[^]*new-key-model/);
   } finally {
     globalThis.document = previousDocument;
   }
