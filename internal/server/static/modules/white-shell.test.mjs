@@ -191,8 +191,8 @@ test("browser tabs use the blue smile favicon across entry points", async () => 
 // The browser keys ES module identity on the full URL, so a ?v= query string on
 // any import forks that module into a second instance with its own state (the
 // i18n locale split was the worst case). Freshness comes from the server's
-// content ETag plus stale-while-revalidate, so no source file may reference a
-// ?v= stamp again.
+// content ETag: tunneled clients use stale-while-revalidate, loopback (desktop)
+// revalidates before paint. No source file may reference a ?v= stamp.
 test("static sources carry no ?v= cache-busting query strings", async () => {
   const { readdir } = await import("node:fs/promises");
   const { fileURLToPath } = await import("node:url");
@@ -223,6 +223,7 @@ test("white shell adds the global rail before the conversation sidebar with the 
   assert.deepEqual(buttons.map(({ target, label }) => ({ target, label })), [
     { target: "home", label: "首页" },
     { target: "conversation", label: "对话" },
+    { target: "remote", label: "远端协作" },
     { target: "schedules", label: "排程" },
     { target: "profile", label: "设置" },
   ]);
@@ -236,6 +237,9 @@ test("white shell adds the global rail before the conversation sidebar with the 
   const scheduleButton = buttons.find(({ target }) => target === "schedules");
   assert.match(scheduleButton?.markup || "", /<rect x="4" y="5" width="16" height="15" rx="2\.5"><\/rect>/);
   assert.match(scheduleButton?.markup || "", /M8 3v4M16 3v4M4 9h16/);
+  const remoteButton = buttons.find(({ target }) => target === "remote");
+  assert.match(remoteButton?.markup || "", /<circle cx="12" cy="12" r="8\.5"><\/circle>/);
+  assert.match(remoteButton?.markup || "", /data-i18n-title="shell\.nav\.remote"/);
   assert.match(appMain, /querySelectorAll\("\[data-global-rail-target\]"\)/);
   assert.match(appMain, /activateGlobalRailTarget\(node\.dataset\.globalRailTarget\)/);
   assert.match(html, /id="globalRailCollapseBtn"[^>]*aria-expanded="true"[^>]*data-i18n-title="shell\.collapseGlobalNavigation"/);
@@ -307,9 +311,9 @@ test("desktop home overview stays available while mobile starts in conversation"
   // few lines later, whether this call is the exact no-op of re-selecting the
   // project already open -- returning from the overview is real work and must
   // not be skipped.
-  assert.equal((appMain.match(/state\.overviewActive && options\.preserveOverview !== true/g) || []).length, 2);
-  assert.match(appMain, /const leavingOverview = state\.overviewActive && options\.preserveOverview !== true;\s*\r?\n\s*if \(leavingOverview\) switchPrimaryWorkbench\("conversation"\);/);
-  assert.match(appMain, /if \(state\.overviewActive && options\.preserveOverview !== true\) switchPrimaryWorkbench\("conversation"\);/);
+  assert.equal((appMain.match(/options\.preserveOverview !== true/g) || []).length, 2);
+  assert.match(appMain, /const leavingOverview = state\.overviewActive && options\.preserveOverview !== true;\s*\r?\n\s*if \(leavingOverview \|\| state\.activeWorkbench === "remote"\) switchPrimaryWorkbench\("conversation"\);/);
+  assert.match(appMain, /if \(\(state\.overviewActive \|\| state\.activeWorkbench === "remote"\) && options\.preserveOverview !== true\) switchPrimaryWorkbench\("conversation"\);/);
   assert.match(appMain, /preserveOverview: startup\.overviewActive/);
   assert.match(appMain, /mobile:\s*isMobileAppViewport\(\)/);
   assert.match(appMain, /function leaveOverviewForMobile\(\)[\s\S]*?state\.overviewActive = false;[\s\S]*?applyPrimaryWorkbench\("conversation"\)/);
@@ -682,6 +686,8 @@ test("project, task, and schedule modes expose separate creation boundaries", as
   assert.equal(scheduleModeClasses.includes("hidden"), false);
   assert.doesNotMatch(scheduleModeButton, /(?:^|\s)hidden(?:\s|=|>)/);
   // Product contract: schedules remains directly above the mobile settings actions.
+  assert.match(html, /id="mobileRemoteModeBtn"[^>]*data-i18n-aria-label="shell\.nav\.remote"/);
+  assert.ok(html.indexOf('id="mobileRemoteModeBtn"') < html.indexOf('id="mobileScheduleModeBtn"'));
   assert.ok(html.indexOf('id="mobileScheduleModeBtn"') < html.indexOf('id="mobileSidebarSettingsBtn"'));
   assert.match(html, /id="schedulePanel" class="schedule-workspace-panel hidden"/);
   assert.match(html, /id="newTaskBtn" class="[^"]*task-mode-action hidden"[^>]*disabled/);
@@ -698,8 +704,12 @@ test("project, task, and schedule modes expose separate creation boundaries", as
   assert.doesNotMatch(appMain, /compactSessionSidebar \? "all"/);
   assert.match(appMain, /state\.navigationMode = "projects"/);
   assert.match(appMain, /if \(scheduleContext\)[\s\S]*?scheduleWorkspace\.renderNavigation/);
+  assert.match(appMain, /if \(remoteContext\)[\s\S]*?peerCollaborationWorkspace\?\.renderNavigationHTML/);
+  assert.doesNotMatch(appMain, /taskContext \? "" : peerCollaborationWorkspace/);
+  assert.match(appMain, /\$\("mobileRemoteModeBtn"\)\?\.addEventListener\("click"/);
   assert.match(appMain, /renderNavigationHTML\(view, \{[\s\S]*?taskContext,/);
   assert.match(appMain, /data-peer-target/);
+  assert.match(appMain, /data-peer-snapshot-retry/);
   assert.match(appMain, /selectPeerConversation/);
   assert.match(appMain, /keepPeerConversation/);
   assert.match(appMain, /input\.placeholder = t\("chat\.messagePlaceholder"\)/);
@@ -709,6 +719,10 @@ test("project, task, and schedule modes expose separate creation boundaries", as
   assert.match(appMain, /data-primary-workbench-target/);
   assert.match(styles, /body\.white-shell\.theme-light\.workbench-mode \.conversation-mode-only\s*\{[\s\S]*?display:\s*none !important/);
   assert.match(styles, /body\.white-shell\.theme-light\.schedule-mode \.conversation-mode-only\s*\{[\s\S]*?display:\s*none !important/);
+  assert.match(styles, /body\.white-shell\.theme-light\.remote-mode \.conversation-mode-only\s*\{[\s\S]*?display:\s*none !important/);
+  assert.match(styles, /body\.hide-schedules-nav \[data-global-rail-target="schedules"\]/);
+  assert.match(styles, /body\.hide-remote-nav \[data-global-rail-target="remote"\]/);
+  assert.match(styles, /body:not\(\.remote-mode\) \.peer-collaboration-nav/);
   assert.match(styles, /First-class schedule workspace/);
   assert.match(styles, /body\.white-shell\.theme-light\.workbench-mode #newTaskBtn\s*\{[\s\S]*?background:\s*var\(--task-accent-soft\)/);
   assert.match(styles, /\.navigation-boundary-empty\s*\{/);
@@ -783,20 +797,31 @@ test("composer operation controls are exposed only in project context", async ()
   assert.match(composer, /id="sendMessageBtn"[^>]*data-i18n="chat\.send"[^>]*>发送<\/button>/);
 });
 
-test("a remote conversation keeps model and thinking chips as read-only chrome", async () => {
+test("a remote conversation shows workspace chrome and adjustable composer chips", async () => {
   const [styles, appMain, selectMenus] = await Promise.all([
     readStylesSource(stylesURL),
     readAppMainSource(),
     readFile(selectMenusURL, "utf8"),
   ]);
-  const peerHide = styles.match(/body\.peer-conversation #conversationToolGroup,[\s\S]*?\{/)?.[0] || "";
+  const peerHide = styles.match(/body\.peer-conversation #copyConversationBtn,[\s\S]*?\{/)?.[0] || "";
   assert.match(peerHide, /composer-attach-wrap/);
   assert.match(peerHide, /#contextUsageBtn/);
+  assert.doesNotMatch(peerHide, /#conversationToolGroup/);
+  assert.doesNotMatch(peerHide, /#headerTaskSummaryBtn/);
   assert.doesNotMatch(peerHide, /composer-model-field/);
   assert.doesNotMatch(peerHide, /composer-effort-field/);
+  assert.match(styles, /body\.white-shell\.theme-light\.peer-conversation:not\(\.project-operation-context\) #conversationToolGroup/);
+  assert.match(styles, /body\.white-shell\.theme-light\.peer-conversation:not\(\.project-operation-context\) #headerTaskSummaryBtn/);
   assert.match(styles, /body\.white-shell\.theme-light\.peer-conversation:not\(\.project-operation-context\) \[data-project-context-only\]\.composer-permission-field/);
-  assert.match(styles, /body\.white-shell\.theme-light\.peer-conversation \.composer-select-trigger[\s\S]*?pointer-events:\s*none/);
+  assert.match(styles, /body\.peer-conversation-readonly \.composer-select-trigger[\s\S]*?pointer-events:\s*none/);
+  assert.doesNotMatch(styles, /body\.white-shell\.theme-light\.peer-conversation \.composer-select-trigger[\s\S]*?pointer-events:\s*none/);
+  assert.match(styles, /body\.white-shell\.theme-light\.peer-conversation #headerTaskSummaryBtn:disabled/);
   assert.match(appMain, /function paintPeerComposerSelects/);
+  assert.match(appMain, /function paintPeerReasoningEffort/);
+  assert.match(appMain, /function paintPeerWorkspaceTools/);
+  assert.match(appMain, /dataset\.peerHostTool/);
+  assert.match(appMain, /function persistPeerComposerSettings/);
+  assert.match(appMain, /updateRuntime/);
   assert.match(appMain, /aria-disabled/);
   assert.match(appMain, /function peerModelDisplayName/);
   assert.doesNotMatch(appMain, /input\.placeholder = t\(canSend \? "peerCollaboration\.sendPlaceholder"/);
@@ -954,7 +979,7 @@ test("desktop conversation layout follows the compact resizable geometry", async
     readFile(new URL("./conversation-navigation.mjs", import.meta.url), "utf8"),
   ]);
   const finalDesktopComposer = styles.slice(styles.indexOf("/* Final desktop full-width composer override. */"));
-  assert.match(styles, /grid-template-columns:\s*76px var\(--session-sidebar-width\) minmax\(360px, 1fr\)/);
+  assert.match(styles, /grid-template-columns:\s*76px var\(--session-sidebar-width\) minmax\(520px, 1fr\)/);
   assert.match(styles, /body\.white-shell\.theme-light \.sidebar-resize-handle\s*\{[\s\S]*?position:\s*fixed[\s\S]*?left:\s*calc\(68px \+ var\(--session-sidebar-width\) - 3px\)/);
   assert.match(styles, /body\.white-shell\.theme-light \.chat-panel\s*\{[\s\S]*?grid-column:\s*3/);
   assert.match(styles, /body\.white-shell\.theme-light \.terminal-panel\s*\{[\s\S]*?grid-column:\s*4/);
@@ -1436,10 +1461,16 @@ test("composer responds to its actual width before the mobile breakpoint", async
   assert.match(responsiveStyles, /\.composer-model-field \.composer-select-trigger\s*\{[^}]*width:\s*auto[^}]*max-width:\s*100%/);
   assert.match(responsiveStyles, /\.composer-model-field \.composer-select-value\s*\{[^}]*flex:\s*0 1 auto/);
   assert.match(responsiveStyles, /\.composer-task-summary\s*\{[^}]*width:\s*auto[^}]*max-width:\s*min\(280px, 46vw\)[^}]*flex:\s*0 1 auto/);
-  assert.match(responsiveStyles, /composer-toolbar:has\(\.composer-task-summary\.has-foreground-activity\) > \.composer-task-summary\.has-foreground-activity[\s\S]*?flex:\s*0 1 auto[\s\S]*?margin-left:\s*auto/);
+  // Idle, thinking, retrying, generating, waiting, approval, compacting, and
+  // queued/running tasks all paint on this chip. Pinning only retry used to
+  // let a later rail shove "思考中" into the model cluster.
+  assert.match(responsiveStyles, /composer-toolbar > \.composer-task-summary\s*\{[^}]*margin-left:\s*0/);
+  assert.match(responsiveStyles, /composer-toolbar:has\(\.composer-task-summary\.has-foreground-activity\) > \.composer-task-summary\.has-foreground-activity[\s\S]*?flex:\s*0 1 auto[\s\S]*?margin-left:\s*0/);
+  assert.match(responsiveStyles, /composer-toolbar:has\(\.composer-task-summary\.has-task\) > \.composer-task-summary\.has-task[\s\S]*?margin-left:\s*0/);
   assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*1320px\)[\s\S]*?\.composer-task-summary\s*\{[^}]*width:\s*auto[^}]*max-width:\s*min\(220px, 42vw\)[^}]*flex:\s*0 1 auto/);
   assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*900px\)[\s\S]*?\.composer-task-summary\s*\{[^}]*width:\s*30px[^}]*flex:\s*0 0 30px/);
   assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*900px\)[\s\S]*?\.composer-task-summary\.has-foreground-activity[\s\S]*?flex:\s*0 1 auto/);
+  assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*900px\)[\s\S]*?\.composer-task-summary\.has-task[\s\S]*?flex:\s*0 1 auto/);
   assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*900px\)[\s\S]*?\.composer-task-summary\.has-foreground-activity[\s\S]*?\.header-task-summary-copy\s*\{[^}]*display:\s*block/);
   // The 200px lock outlived the `provider:model` label. The trigger now shows
   // the model name, so that box left a hole before the effort chip.
@@ -1535,6 +1566,11 @@ test("narrow composer switches atomically to a fixed unframed icon rail", async 
   const iconRail = styles.slice(styles.indexOf(marker), styles.indexOf("/* Flat, single-pass settings layout", styles.indexOf(marker)));
   assert.ok(iconRail.startsWith(marker));
   assert.match(iconRail, /@container composer-shell \(max-width:\s*480px\)/);
+  // Keep the status chip (thinking included) on the left; park the model
+  // cluster on the right. flex-end on this row used to shove every live
+  // step into the picker group once the chip hugged its label.
+  assert.match(iconRail, /\.composer-toolbar\s*\{[^}]*justify-content:\s*flex-start/);
+  assert.match(iconRail, /\.composer-controls\s*\{[^}]*margin-left:\s*auto/);
   // The connection pill is gone from this tier rather than resized into it. On
   // desktop paintComposerStatus hands the running step to the task summary, so the
   // pill held only the connection text and still spun a ring beside it: two
@@ -2330,6 +2366,7 @@ test("mobile shell skips home and keeps the drawer, settings index, and model sh
   assert.match(appMain, /function showMobileSettingsIndex[\s\S]*?settings\.mobile\.indexTitle/);
   assert.match(appMain, /showMobileSettingsIndex[\s\S]*?querySelector\?\.\("\.settings-mobile-index-row"\)\?\.focus/);
   assert.match(appMain, /function requestCloseSettingsModal[\s\S]*?mobileSettingsView === "detail"/);
+  assert.match(appMain, /isAccountSessionAuthorizationFailure/);
   assert.match(appMain, /async function signOutFromShell[\s\S]*?accountLockActive\(\)[\s\S]*?accountSession\.signOut\(\)[\s\S]*?logoutRemoteAccess\(\)/);
   assert.match(appMain, /\$\("logoutBtn"\)[\s\S]*?signOutFromShell\(\)/);
   assert.match(appMain, /\$\("mobileSidebarLogoutBtn"\)[\s\S]*?signOutFromShell\(\)/);
@@ -2542,6 +2579,8 @@ test("unversioned dark appearance migrates once to light and explicit versioned 
       terminalDefaultOpen: true,
       showEventLog: false,
       showThroughput: false,
+      showSchedulesNav: true,
+      showRemoteNav: true,
     });
     assert.deepEqual(JSON.parse(storage.getItem(appearancePrefsKey)), migrated);
 
@@ -2582,6 +2621,8 @@ test("appearance backup import and export normalize the new schema without rejec
       terminalDefaultOpen: false,
       showEventLog: true,
       showThroughput: false,
+      showSchedulesNav: true,
+      showRemoteNav: true,
     });
     assert.deepEqual(controller.createLocalPreferencesBackup().preferences[appearancePrefsKey], {
       styleVersion: 5,
@@ -2599,6 +2640,8 @@ test("appearance backup import and export normalize the new schema without rejec
       terminalDefaultOpen: false,
       showEventLog: true,
       showThroughput: false,
+      showSchedulesNav: true,
+      showRemoteNav: true,
     });
   });
 });
@@ -2683,13 +2726,14 @@ test("model provider settings styles remain scoped, responsive, and independent 
 
 test("opening a utility panel does not collapse the app shell's 4th grid column to zero width", async () => {
   const styles = await readStylesSource(stylesURL);
-  // The dual-rail compact navigation block unconditionally zeroes the 4th
-  // grid column whenever .terminal-collapsed is present. Every "open panel"
-  // flow (details / background tasks / preview) also collapses the terminal
-  // first, so without this override the newly-opened panel would sit in a
-  // zero-width column and never become visible.
+  const dualRail = styles.slice(styles.indexOf("Dual-rail compact navigation"));
+  assert.ok(dualRail.includes("Dual-rail compact navigation"), "找不到 dual-rail 導覽區塊");
+  // The dual-rail compact navigation block zeroes the 4th grid column whenever
+  // .terminal-collapsed is present. Restore that column for every non-phone
+  // width so dragging the outer window shrinks the docked panel instead of
+  // covering the chat.
   assert.match(
-    styles,
+    dualRail,
     /\.app-shell\.terminal-collapsed\.details-open,[\s\S]*?\.app-shell\.terminal-collapsed\.background-tasks-open,[\s\S]*?\.app-shell\.terminal-collapsed\.preview-open[\s\S]*?\{[\s\S]*?grid-template-columns:[\s\S]*?clamp\(260px, calc\(50vw - 186px\), 1200px\)/,
   );
 });
@@ -2792,6 +2836,11 @@ test("workspace files panel queries the card width rather than itself", async ()
 test("phone overlays cover the conversation instead of docking beside it", async () => {
   const styles = await readStylesSource(stylesURL);
   assert.match(styles, /\.conversation-details-panel \{[\s\S]*?height:\s*calc\(100dvh - 64px\)[\s\S]*?max-height:\s*none/);
+  const phoneStart = styles.lastIndexOf("/* Phone overlays cover the chat from the topbar down.");
+  assert.ok(phoneStart > -1, "expected the phone utility-panel overlay comment");
+  const phoneBlock = styles.slice(phoneStart, styles.indexOf("body.white-shell.theme-light .conversation-details-body", phoneStart));
+  assert.match(phoneBlock, /body\.white-shell\.theme-light \.utility-panel \{[\s\S]*?height:\s*calc\(100dvh - 64px\)[\s\S]*?max-height:\s*none/);
+  assert.doesNotMatch(phoneBlock, /max-height:\s*min\(62dvh/);
   assert.match(styles, /\.shell-dock-mode > \.modal-card,[\s\S]*?\.workspace-preview-dock-mode \.workspace-modal-card \{[\s\S]*?width:\s*100%/);
   assert.match(styles, /\.spec-board-modal-card\.settings-modal-card \{[\s\S]*?grid-template-rows:\s*none/);
   assert.match(styles, /\.spec-board-toolbar label \{[\s\S]*?align-content:\s*start/);

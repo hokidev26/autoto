@@ -91,9 +91,8 @@ body.sidebar-resizing * {
 /* Utility panel (conversation details / background tasks / workspace
    preview) divider: same pattern as .sidebar-resize-handle above, anchored to
    the panel's left edge instead. Only shown once a panel is open, at the
-   >=1280px breakpoint where the panel is a real grid column (see
-   workbench.css); hidden otherwise so it never appears on the overlay/mobile
-   layouts. */
+   >=768px breakpoint where the panel is a real grid column (see
+   workbench.css); hidden on the phone overlay. */
 body.white-shell.theme-light .utility-panel-resize-handle {
   display: none;
   position: fixed;

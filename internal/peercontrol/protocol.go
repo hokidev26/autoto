@@ -12,6 +12,7 @@ const (
 	establishSessionEndpoint      = "/api/peer/v1/session/establish"
 	getSnapshotEndpoint           = "/api/peer/v1/snapshot"
 	sendTaskEndpoint              = "/api/peer/v1/tasks"
+	updateAgentRuntimeEndpoint    = "/api/peer/v1/agents/runtime"
 	resolveApprovalEndpoint       = "/api/peer/v1/approvals/resolve"
 	executionHeartbeatEndpoint    = "/api/peer/v1/execution/heartbeat"
 	executionClaimEndpoint        = "/api/peer/v1/execution/claim"
@@ -190,6 +191,28 @@ type SendTaskResponse struct {
 	RunID     string    `json:"runId"`
 	Status    string    `json:"status"`
 	CreatedAt time.Time `json:"createdAt"`
+}
+
+// UpdateAgentRuntimeRequest changes the host conversation's model, thinking
+// strength, or permission mode. At least one of Model, ReasoningEffort, or
+// PermissionMode must be set. PermissionMode is clamped to the grant cap on
+// the host; bypassPermissions is never accepted over this channel.
+type UpdateAgentRuntimeRequest struct {
+	PairingID       string `json:"pairingId"`
+	AgentID         string `json:"agentId"`
+	Model           string `json:"model,omitempty"`
+	ReasoningEffort string `json:"reasoningEffort,omitempty"`
+	PermissionMode  string `json:"permissionMode,omitempty"`
+}
+
+// UpdateAgentRuntimeResponse echoes the host values after a successful patch.
+// It is a new endpoint, so these fields do not ship on GetSnapshotResponse.
+type UpdateAgentRuntimeResponse struct {
+	AgentID           string `json:"agentId"`
+	Model             string `json:"model"`
+	ReasoningEffort   string `json:"reasoningEffort"`
+	PermissionMode    string `json:"permissionMode"`
+	PermissionModeCap string `json:"permissionModeCap"`
 }
 
 // ResolveApprovalRequest is the fixed approval decision shape. Decision is

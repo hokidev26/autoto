@@ -50,11 +50,11 @@ function replaceGlobal(name, value) {
 
 test("utility panel width helpers clamp values, respect available space, and keep a stable preference key", () => {
   assert.equal(utilityPanelWidthPreferenceKey, "autoto.ui.utilityPanelWidth");
-  assert.equal(utilityPanelDesktopBreakpoint, 1280);
-  // Low enough that dragging the panel can take the composer into its narrow,
-  // phone-shaped tier, which begins at a 480px container. A 420 floor left the
-  // chat just above that tier, so only the sidebar appeared able to reach it.
-  assert.equal(utilityPanelChatMinWidth, 360);
+  assert.equal(utilityPanelDesktopBreakpoint, 768);
+  // Low enough that dragging the panel can take the composer into its compact
+  // 620px tier, but stays above the 480px phone-shaped rail where the transcript
+  // and composer become unreadable.
+  assert.equal(utilityPanelChatMinWidth, 520);
   // Low enough that the panel can reach its narrow, phone-shaped tier; the old
   // 320 floor ended the drag before that layout could apply.
   assert.equal(minUtilityPanelWidth, 260);
@@ -77,9 +77,10 @@ test("utility panel width helpers clamp values, respect available space, and kee
   // Viewport-aware cap: never allowed to squeeze the chat column or overflow
   // the viewport, even if that is narrower than maxUtilityPanelWidth.
   const tightAvailable = utilityPanelMaxAvailable({ viewportWidth: 1280, railWidth: 76, sidebarWidth: 296 });
-  assert.equal(tightAvailable, 1280 - 76 - 296 - 360);
+  assert.equal(tightAvailable, 1280 - 76 - 296 - utilityPanelChatMinWidth);
   assert.equal(normalizeUtilityPanelWidth(620, undefined, { maxAvailable: tightAvailable }), Math.max(minUtilityPanelWidth, tightAvailable));
-  const roomyAvailable = utilityPanelMaxAvailable({ viewportWidth: 2000, railWidth: 76, sidebarWidth: 296 });
+  const roomyAvailable = utilityPanelMaxAvailable({ viewportWidth: 2200, railWidth: 76, sidebarWidth: 296 });
+  assert.ok(roomyAvailable >= maxUtilityPanelWidth, "roomy fixture must still reach the panel ceiling");
   // A width the layout can honour is returned untouched...
   assert.equal(normalizeUtilityPanelWidth(620, undefined, { maxAvailable: roomyAvailable }), 620);
   // ...and only a width past the ceiling is pulled back to it. Asking for 620 used
@@ -117,12 +118,21 @@ test("utility panel resize handle styles stay hidden until a panel opens at the 
   const wideBreakpointStart = styles.indexOf("@media (min-width: 1280px) {\n  body.white-shell.theme-light .app-shell.details-open,");
   assert.ok(wideBreakpointStart > -1, "expected the >=1280px details/background-tasks/preview open block");
   const wideBreakpointBlock = styles.slice(wideBreakpointStart, styles.indexOf("\n}\n", wideBreakpointStart) + 3);
-  assert.match(wideBreakpointBlock, /grid-template-columns:\s*76px var\(--session-sidebar-width\) minmax\(360px, 1fr\) var\(--utility-panel-width, clamp\(260px, calc\(50vw - 186px\), 1200px\)\)/);
-  assert.match(wideBreakpointBlock, /\.app-shell\.details-open \.utility-panel-resize-handle,[\s\S]*?\.app-shell\.preview-open \.utility-panel-resize-handle\s*\{[\s\S]*?display:\s*block;[\s\S]*?right:\s*calc\(var\(--utility-panel-width, clamp\(260px, calc\(50vw - 186px\), 1200px\)\) - 3px\)/);
+  assert.match(wideBreakpointBlock, /grid-template-columns:\s*76px var\(--session-sidebar-width\) minmax\(520px, 1fr\) var\(--utility-panel-width, clamp\(260px, calc\(50vw - 186px\), 1200px\)\)/);
+  assert.doesNotMatch(wideBreakpointBlock, /utility-panel-resize-handle/);
+  assert.match(styles, /@media \(min-width:\s*768px\) \{\s*\n\s*body\.white-shell\.theme-light \.app-shell\.details-open \.utility-panel-resize-handle,/);
+  assert.match(styles, /\.app-shell\.details-open \.utility-panel-resize-handle,[\s\S]*?\.app-shell\.preview-open \.utility-panel-resize-handle\s*\{[\s\S]*?display:\s*block;[\s\S]*?right:\s*calc\(var\(--utility-panel-width, clamp\(260px, calc\(50vw - 186px\), 1200px\)\) - 3px\)/);
 
   // The higher-specificity rule that actually wins once the terminal auto-
   // collapses behind an open panel must honour the same custom property.
   assert.match(styles, /\.app-shell\.terminal-collapsed\.preview-open\s*\{\s*\n\s*grid-template-columns:\s*var\(--global-rail-layout-width\) var\(--session-sidebar-layout-width\) minmax\(0, 1fr\) var\(--utility-panel-width, clamp\(260px, calc\(50vw - 186px\), 1200px\)\)/);
+  // Mid widths keep the panel in the grid. A position:fixed overlay here is
+  // what covered the chat when the user dragged the outer window.
+  assert.doesNotMatch(styles, /max-width:\s*1279px\) \{\s*\n\s*body\.white-shell\.theme-light \.utility-panel \{ position:\s*fixed/);
+  const midGridStart = styles.indexOf("@media (min-width: 768px) and (max-width: 1279px) {\n  body.white-shell.theme-light .app-shell,\n  body.white-shell.theme-light .app-shell.terminal-collapsed {");
+  assert.ok(midGridStart > -1, "expected the 768–1279 app-shell grid block");
+  const midGridBlock = styles.slice(midGridStart, styles.indexOf("@media (max-width: 767px)", midGridStart));
+  assert.match(midGridBlock, /\.app-shell\.background-tasks-open,[\s\S]*?grid-template-columns:\s*68px var\(--session-sidebar-width\) minmax\(0, 1fr\) var\(--utility-panel-width/);
 
   // The docked workspace preview card is not a grid child, so its own width
   // must track the same variable to stay visually aligned with the divider.
@@ -195,7 +205,7 @@ test("utility panel resizer drags, keys, resets, persists, and cleans up", () =>
     },
   };
   const fakeWindow = {
-    matchMedia(query) { return { matches: query.includes("1280") }; },
+    matchMedia(query) { return { matches: query.includes("768") }; },
     addEventListener(name, handler) { windowListeners.set(name, handler); },
     removeEventListener(name) { windowListeners.delete(name); },
     innerWidth: 1440,
@@ -315,7 +325,7 @@ test("utility panel resizer stops double-counting the conversation list once it 
     },
   };
   const fakeWindow = {
-    matchMedia(query) { return { matches: query.includes("1280") }; },
+    matchMedia(query) { return { matches: query.includes("768") }; },
     addEventListener(name, handler) { windowListeners.set(name, handler); },
     removeEventListener(name) { windowListeners.delete(name); },
     innerWidth: viewportWidth,
@@ -346,10 +356,10 @@ test("utility panel resizer stops double-counting the conversation list once it 
     );
     assert.equal(dockedWidest - undockedWidest, sidebarRectWidth, "docked 時多出來的可拖曳距離，正好是原本被重複扣掉的那份清單寬");
 
-    // What the user actually sees: the middle column reaches its floor, which is
-    // under the composer's 480px phone tier.
+    // The floor stays above the composer's 480px phone tier so the transcript
+    // remains readable.
     assert.equal(viewportWidth - railRectWidth - dockedWidest, utilityPanelChatMinWidth);
-    assert.ok(viewportWidth - railRectWidth - dockedWidest < 480);
+    assert.ok(viewportWidth - railRectWidth - dockedWidest > 480);
 
     cleanup();
     assert.equal(elementListeners.size, 0);
@@ -387,7 +397,7 @@ test("utility panel resizer ignores drag/key input once the panel closes or the 
     querySelector() { return null; },
   };
   const fakeWindow = {
-    matchMedia() { return { matches: false }; }, // narrower than 1280px
+    matchMedia() { return { matches: false }; }, // narrower than 768px
     addEventListener(name, handler) { windowListeners.set(name, handler); },
     removeEventListener(name) { windowListeners.delete(name); },
     innerWidth: 900,
@@ -402,6 +412,72 @@ test("utility panel resizer ignores drag/key input once the panel closes or the 
     elementListeners.get("keydown")({ key: "ArrowLeft", shiftKey: false, preventDefault() { throw new Error("should not preventDefault while closed/narrow"); } });
     elementListeners.get("pointerdown")({ button: 0, pointerId: 1, clientX: 500, preventDefault() {} });
     assert.equal(styleValues.has("--utility-panel-width"), false);
+    cleanup();
+  } finally {
+    restoreWindow();
+    restoreDocument();
+  }
+});
+
+test("narrowing the outer window clamps a docked panel and leaves the phone sheet width alone", () => {
+  const elementListeners = new Map();
+  const windowListeners = new Map();
+  const styleValues = new Map();
+  const storage = new MemoryStorage([[utilityPanelWidthPreferenceKey, "720"]]);
+  const shellClasses = new Set(["background-tasks-open"]);
+  const separator = {
+    classList: { add() {}, remove() {} },
+    addEventListener(name, handler) { elementListeners.set(name, handler); },
+    removeEventListener(name) { elementListeners.delete(name); },
+    setAttribute() {},
+    setPointerCapture() {},
+    releasePointerCapture() {},
+  };
+  const shell = {
+    classList: { contains(name) { return shellClasses.has(name); } },
+    style: { setProperty(name, value) { styleValues.set(name, value); }, removeProperty(name) { styleValues.delete(name); } },
+  };
+  const media = { matches: true };
+  const fakeDocument = {
+    body: { classList: { add() {}, remove() {}, contains: () => false } },
+    documentElement: {
+      clientWidth: 1600,
+      style: {
+        setProperty(name, value) { styleValues.set(name, value); },
+        removeProperty(name) { styleValues.delete(name); },
+      },
+    },
+    getElementById(id) {
+      return { appShell: shell, utilityPanelResizeHandle: separator, backgroundTaskTray: { getBoundingClientRect() { return { width: 720 }; } } }[id] || null;
+    },
+    querySelector() { return { getBoundingClientRect() { return { width: 76 }; } }; },
+  };
+  const fakeWindow = {
+    matchMedia() { return media; },
+    addEventListener(name, handler) { windowListeners.set(name, handler); },
+    removeEventListener(name) { windowListeners.delete(name); },
+    innerWidth: 1600,
+  };
+  const restoreDocument = replaceGlobal("document", fakeDocument);
+  const restoreWindow = replaceGlobal("window", fakeWindow);
+  try {
+    const controller = createUIShellController({ state: {}, resizeTerminal() {} });
+    const cleanup = controller.bindUtilityPanelResizer({ storage });
+    assert.equal(styleValues.get("--utility-panel-width"), "720px");
+
+    fakeWindow.innerWidth = 1000;
+    fakeDocument.documentElement.clientWidth = 1000;
+    windowListeners.get("resize")();
+    const dockedCap = normalizeUtilityPanelWidth(720, undefined, {
+      maxAvailable: utilityPanelMaxAvailable({ viewportWidth: 1000, railWidth: 76, sidebarWidth: 76 }),
+    });
+    assert.equal(styleValues.get("--utility-panel-width"), `${dockedCap}px`, "outer-window shrink must clamp the docked column");
+
+    media.matches = false;
+    fakeWindow.innerWidth = 700;
+    fakeDocument.documentElement.clientWidth = 700;
+    windowListeners.get("resize")();
+    assert.equal(styleValues.get("--utility-panel-width"), `${dockedCap}px`, "phone sheet must not rewrite the docked width");
     cleanup();
   } finally {
     restoreWindow();

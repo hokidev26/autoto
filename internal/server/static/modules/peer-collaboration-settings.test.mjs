@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   authorizationPayload,
   collectAgentOptions,
+  collectProjectGrantOptions,
   createPeerCollaborationSettingsController,
   normalizePeerCollaboration,
   normalizePeerScopes,
@@ -17,6 +18,8 @@ const navigation = {
   conversations: [
     { projectId: "project-1", projectName: "Alpha", agentId: "agent-1", agentTitle: "Build the parser" },
     { projectId: "project-1", projectName: "Alpha", agentId: "agent-1", agentTitle: "duplicate is dropped" },
+    { projectId: "project-1", projectName: "Alpha", agentId: "agent-5", agentTitle: "Write tests" },
+    { projectId: "project-2", projectName: "Beta", agentId: "agent-4", agentTitle: "Other app" },
     { projectId: "project-1", projectName: "Alpha", agentId: "agent-2", agentTitle: "Archived", agentArchivedAt: "2026-08-01T00:00:00Z" },
     { projectId: "", projectName: "", agentId: "agent-3", agentTitle: "No project" },
   ],
@@ -166,6 +169,8 @@ test("an authorization payload only carries an expiry when hours are positive", 
 test("agent options come from navigation, deduplicated and without archived or project-less rows", () => {
   assert.deepEqual(collectAgentOptions(navigation), [
     { agentId: "agent-1", projectId: "project-1", agentTitle: "Build the parser", projectName: "Alpha" },
+    { agentId: "agent-5", projectId: "project-1", agentTitle: "Write tests", projectName: "Alpha" },
+    { agentId: "agent-4", projectId: "project-2", agentTitle: "Other app", projectName: "Beta" },
   ]);
   assert.deepEqual(collectAgentOptions({}), []);
 });
@@ -199,13 +204,13 @@ test("creating an invitation asks for a bounded lifetime and keeps the code out 
   assert.match(html, /<svg /);
 });
 
-test("approving a claim sends the invitation revision with the granted agents", async () => {
+test("approving a claim sends the invitation revision with the granted project agents", async () => {
   const harness = createHarness({
     status: statusPayload({ invitations: [claimedInvitation()] }),
     responses: { "/api/remote-collaboration/invitations/invitation-1/approve": () => hostPairing() },
   });
   await harness.controller.load();
-  harness.controller.addGrant("approval", "invitation-1", "agent-1");
+  harness.controller.setProjectGranted("approval", "invitation-1", "project-1", true);
   await harness.controller.approveInvitation("invitation-1");
 
   const approve = harness.requests.find((entry) => entry.path.endsWith("/approve"));
@@ -214,7 +219,27 @@ test("approving a claim sends the invitation revision with the granted agents", 
   assert.deepEqual(approve.body.scopes, ["observe"]);
   assert.deepEqual(approve.body.grants, [
     { projectId: "project-1", agentId: "agent-1", scopes: ["observe"], permissionModeCap: "readOnly" },
+    { projectId: "project-1", agentId: "agent-5", scopes: ["observe"], permissionModeCap: "readOnly" },
   ]);
+});
+
+test("the authorization editor grants whole projects instead of adding agents one by one", async () => {
+  const harness = createHarness({ status: statusPayload({ invitations: [claimedInvitation()] }) });
+  await harness.controller.load();
+  harness.controller.reviewInvitation("invitation-1");
+  const html = harness.controller.render();
+  assert.match(html, /peer-collaboration-project-picker/);
+  assert.match(html, /user-admin-project-picker/);
+  assert.match(html, /data-peer-project-picker-toggle/);
+  assert.match(html, /user-admin-project-checks/);
+  assert.match(html, /data-peer-project-grant="project-1"/);
+  assert.match(html, /data-peer-project-grant="project-2"/);
+  assert.match(html, /data-peer-grant-cap-all/);
+  assert.doesNotMatch(html, /data-peer-add-grant/);
+  assert.doesNotMatch(html, /data-peer-grant-scope/);
+  assert.doesNotMatch(html, /data-peer-project-picker-toggle[^>]*tabindex="-1"/);
+  assert.doesNotMatch(html, /peer-collaboration-project-checks/);
+  assert.deepEqual(collectProjectGrantOptions(collectAgentOptions(navigation)).map((project) => project.projectId), ["project-1", "project-2"]);
 });
 
 test("rejecting and revoking an invitation carry the status the server expects", async () => {
@@ -404,6 +429,7 @@ test("peer collaboration cards share the settings-network panel container", asyn
   assert.match(css, /#settingsContentBody \.peer-collaboration-stack-list > \.peer-collaboration-item \+ \.peer-collaboration-item \{[\s\S]*?margin-top:\s*16px/);
   assert.match(css, /#settingsContentBody \.peer-collaboration-item-tools \{/);
   assert.match(css, /#settingsContentBody \.peer-collaboration-item-foot \{/);
+  assert.match(css, /#settingsContentBody \.peer-collaboration-lane-kicker \{/);
 });
 
 test("the pairing hero is a switch plus labeled identity rows, not nested stat cards", async () => {
@@ -493,6 +519,34 @@ test("a controller pairing points at the conversation list instead of empty loca
   });
   await harness.controller.load();
   const html = harness.controller.render();
-  assert.match(html, /左侧对话列表|左側對話列表|conversation sidebar/);
+  assert.match(html, /远端协作|遠端協作|Remote collaboration/);
   assert.doesNotMatch(html, /对方看不到内容|對方看不到內容|peer sees nothing/);
+});
+
+test("sharing off with a host pairing explains why peers cannot read", async () => {
+  const harness = createHarness({
+    status: statusPayload({
+      sharingEnabled: false,
+      pairings: [hostPairing()],
+    }),
+  });
+  await harness.controller.load();
+  const html = harness.controller.render();
+  assert.match(html, /peer-collaboration-lane-kicker/);
+  assert.match(html, /data-peer-lane="host"/);
+  assert.match(html, /data-peer-lane="controller"/);
+  assert.match(html, /分享已关闭|分享已關閉|Sharing is off/);
+});
+
+test("a host pairing with no grants asks the owner to pick conversations", async () => {
+  const harness = createHarness({
+    status: statusPayload({
+      pairings: [{ ...hostPairing(), grants: [] }],
+    }),
+  });
+  await harness.controller.load();
+  const html = harness.controller.render();
+  assert.match(html, /还没选要分享的项目|還沒選要分享的專案|No conversations are shared yet/);
+  assert.match(html, /settings-inline-alert/);
+  assert.doesNotMatch(html, /peer sees nothing/);
 });

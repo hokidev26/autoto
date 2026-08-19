@@ -75,7 +75,7 @@ export function localPreferenceBackupLabel(entry, locale = currentUILocale()) {
 
 export function normalizePrimaryModePreference(value) {
   const mode = String(value || "").trim();
-  return ["workbench", "schedules"].includes(mode) ? mode : defaultPrimaryModePreference;
+  return ["workbench", "schedules", "remote"].includes(mode) ? mode : defaultPrimaryModePreference;
 }
 
 export const defaultProfilePrefs = {
@@ -325,6 +325,8 @@ export const defaultAppearancePrefs = {
   // Throughput and time-to-first-token are diagnostics, not part of reading a
   // reply, so the transcript stays quiet until someone asks for them.
   showThroughput: false,
+  showSchedulesNav: true,
+  showRemoteNav: true,
 };
 
 export const defaultTerminalPrefs = {

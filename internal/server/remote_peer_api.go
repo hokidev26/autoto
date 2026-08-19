@@ -49,6 +49,7 @@ func (s *Server) mountPeerAPIRoutes(router chi.Router) {
 		router.Post("/session/establish", s.peerSessionEstablish)
 		router.Post("/snapshot", s.peerSnapshot)
 		router.Post("/tasks", s.peerSendTask)
+		router.Post("/agents/runtime", s.peerUpdateAgentRuntime)
 		router.Post("/approvals/resolve", s.peerResolveApproval)
 		router.Post("/execution/heartbeat", s.peerExecutionHeartbeat)
 		router.Post("/execution/claim", s.peerExecutionClaim)
@@ -477,6 +478,105 @@ func (s *Server) peerSendTask(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, response)
 }
 
+func clampPeerGrantedPermissionMode(requested, cap string) (string, error) {
+	mode := strings.TrimSpace(requested)
+	if mode == "dontAsk" {
+		mode = "default"
+	}
+	if !validPermissionMode(mode) {
+		return "", errors.New("invalid permission mode")
+	}
+	if mode == "bypassPermissions" {
+		return "", errors.New("peer grant does not allow this permission mode")
+	}
+	switch strings.TrimSpace(cap) {
+	case db.RemotePeerPermissionModeReadOnly:
+		if mode != "readOnly" {
+			return "", errors.New("peer grant does not allow this permission mode")
+		}
+	case db.RemotePeerPermissionModeAcceptEdits:
+		// readOnly, acceptEdits, and default stay at or under the grant cap.
+	default:
+		return "", errors.New("peer grant does not allow this permission mode")
+	}
+	return mode, nil
+}
+
+func (s *Server) peerUpdateAgentRuntime(w http.ResponseWriter, r *http.Request) {
+	var request peercontrol.UpdateAgentRuntimeRequest
+	authorized, ok := s.authorizePeerRequest(w, r, &request, peercontrol.ScopeSendTask, request.AgentID)
+	if !ok {
+		return
+	}
+	request.AgentID = strings.TrimSpace(request.AgentID)
+	request.Model = strings.TrimSpace(request.Model)
+	request.ReasoningEffort = strings.ToLower(strings.TrimSpace(request.ReasoningEffort))
+	request.PermissionMode = strings.TrimSpace(request.PermissionMode)
+	if request.AgentID == "" || (request.Model == "" && request.ReasoningEffort == "" && request.PermissionMode == "") {
+		writeError(w, http.StatusBadRequest, "invalid peer agent runtime request")
+		return
+	}
+	if _, err := s.store.GetAgent(r.Context(), request.AgentID); err != nil {
+		writeError(w, http.StatusForbidden, "peer grant does not authorize this agent")
+		return
+	}
+	if request.PermissionMode != "" {
+		mode, err := clampPeerGrantedPermissionMode(request.PermissionMode, authorized.grant.PermissionModeCap)
+		if err != nil {
+			writeError(w, http.StatusForbidden, err.Error())
+			return
+		}
+		request.PermissionMode = mode
+	}
+	if err := s.recordRequiredPeerAudit(r.Context(), audit.Event{
+		Category: "peer", Action: "agent.runtime.update", Actor: peerActor(authorized.pairing.PeerFingerprint), AgentID: request.AgentID,
+		SubjectType: "peer_agent", SubjectID: request.AgentID, Outcome: "success", Risk: "high",
+		Details: map[string]any{
+			"pairingId": authorized.pairing.ID, "model": request.Model != "",
+			"reasoningEffort": request.ReasoningEffort != "", "permissionMode": request.PermissionMode != "",
+		},
+	}); err != nil {
+		writeError(w, http.StatusInternalServerError, "peer agent runtime was not updated because audit persistence failed")
+		return
+	}
+	agent, err := s.store.GetAgent(r.Context(), request.AgentID)
+	if err != nil {
+		writeError(w, http.StatusForbidden, "peer grant does not authorize this agent")
+		return
+	}
+	if request.Model != "" {
+		updated, err := s.agents().updateModel(r.Context(), request.AgentID, request.Model)
+		if err != nil {
+			s.writeAPIError(w, r, err)
+			return
+		}
+		agent = updated
+	}
+	if request.ReasoningEffort != "" {
+		effortRequest := agentReasoningRequest{}
+		effortRequest.ReasoningEffort.set = true
+		effortRequest.ReasoningEffort.value = request.ReasoningEffort
+		updated, err := s.modelRuntime().updateReasoningEffort(r.Context(), request.AgentID, effortRequest)
+		if err != nil {
+			s.writeAPIError(w, r, err)
+			return
+		}
+		agent = updated
+	}
+	if request.PermissionMode != "" && request.PermissionMode != agent.PermissionMode {
+		updated, err := s.agents().updatePermissionMode(r.Context(), request.AgentID, request.PermissionMode)
+		if err != nil {
+			s.writeAPIError(w, r, err)
+			return
+		}
+		agent = updated
+	}
+	writeJSON(w, http.StatusOK, peercontrol.UpdateAgentRuntimeResponse{
+		AgentID: agent.ID, Model: boundedPeerText(agent.Model, 128), ReasoningEffort: boundedPeerText(agent.ReasoningEffort, 32),
+		PermissionMode: agent.PermissionMode, PermissionModeCap: authorized.grant.PermissionModeCap,
+	})
+}
+
 func (s *Server) peerResolveApproval(w http.ResponseWriter, r *http.Request) {
 	var request peercontrol.ResolveApprovalRequest
 	authorized, ok := s.authorizePeerRequest(w, r, &request, peercontrol.ScopeApproveOnce, request.AgentID)
@@ -610,6 +710,8 @@ func (s *Server) authorizePeerRequest(w http.ResponseWriter, r *http.Request, de
 			requestedAgentID = strings.TrimSpace(typed.AgentID)
 		case *peercontrol.SendTaskRequest:
 			requestedAgentID = strings.TrimSpace(typed.AgentID)
+		case *peercontrol.UpdateAgentRuntimeRequest:
+			requestedAgentID = strings.TrimSpace(typed.AgentID)
 		case *peercontrol.ResolveApprovalRequest:
 			requestedAgentID = strings.TrimSpace(typed.AgentID)
 		}
@@ -684,6 +786,8 @@ func peerRequestPairingID(request any) string {
 	case *peercontrol.GetSnapshotRequest:
 		return strings.TrimSpace(typed.PairingID)
 	case *peercontrol.SendTaskRequest:
+		return strings.TrimSpace(typed.PairingID)
+	case *peercontrol.UpdateAgentRuntimeRequest:
 		return strings.TrimSpace(typed.PairingID)
 	case *peercontrol.ResolveApprovalRequest:
 		return strings.TrimSpace(typed.PairingID)

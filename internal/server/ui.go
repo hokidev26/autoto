@@ -65,22 +65,30 @@ var uiAssetETags = sync.OnceValue(func() map[string]string {
 	return tags
 })
 
-// uiAssetCacheControl lets the browser paint from its disk copy immediately
-// and revalidate in the background. no-cache forced ~190 blocking 304s through
-// a tunnel before the first module could run. max-age=0 keeps the copy stale
-// so the next visit still revalidates; stale-while-revalidate is what makes
-// reload feel local. Long-lived immutable caching is still unused: a ?v= on a
-// JavaScript module forks it into a second instance (that is how i18n locale
-// state once split). CSS may use a one-off `?c=` only to drop a CDN copy.
+// uiAssetCacheControl lets a tunneled/phone client paint from its disk copy
+// immediately and revalidate in the background. no-cache forced ~190 blocking
+// 304s through a tunnel before the first module could run. max-age=0 keeps the
+// copy stale so the next visit still revalidates; stale-while-revalidate is
+// what makes remote reload feel local. Direct loopback (the desktop WebView)
+// uses uiAssetLoopbackCacheControl instead: a replaced exe must not keep
+// yesterday's modules for a day. Long-lived immutable caching is still unused:
+// a ?v= on a JavaScript module forks it into a second instance (that is how
+// i18n locale state once split). CSS may use a one-off `?c=` only to drop a
+// CDN copy.
 //
 // private keeps the copy off shared caches. Cloudflare caches CSS/JS by
 // extension; a shared HIT of extras.css after a restart left remote
 // collaborators on the previous Stop colour. CDN-Cache-Control is the
 // Cloudflare-only "do not store" switch.
 const uiAssetCacheControl = "private, max-age=0, stale-while-revalidate=86400"
+const uiAssetLoopbackCacheControl = "private, max-age=0, must-revalidate"
 
-func setUIAssetCacheHeaders(w http.ResponseWriter) {
-	w.Header().Set("Cache-Control", uiAssetCacheControl)
+func (s *Server) setUIAssetCacheHeaders(w http.ResponseWriter, r *http.Request) {
+	cache := uiAssetCacheControl
+	if s != nil && r != nil && !s.remoteAccessGateRequired(r) {
+		cache = uiAssetLoopbackCacheControl
+	}
+	w.Header().Set("Cache-Control", cache)
 	w.Header().Set("CDN-Cache-Control", "no-store")
 	w.Header().Set("Cloudflare-CDN-Cache-Control", "no-store")
 }
@@ -148,14 +156,14 @@ func (s *Server) mountUI(r interface {
 		if assetPath == "styles.css" {
 			if bundled := bundledUIStyles(); len(bundled.body) > 0 {
 				w.Header().Set("ETag", bundled.etag)
-				setUIAssetCacheHeaders(w)
+				s.setUIAssetCacheHeaders(w, r)
 				http.ServeContent(w, r, "styles.css", time.Time{}, bytes.NewReader(bundled.body))
 				return
 			}
 		}
 		if etag, ok := uiAssetETags()[assetPath]; ok {
 			w.Header().Set("ETag", etag)
-			setUIAssetCacheHeaders(w)
+			s.setUIAssetCacheHeaders(w, r)
 		} else {
 			setNoStore(w)
 		}

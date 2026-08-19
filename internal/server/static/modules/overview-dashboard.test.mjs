@@ -119,6 +119,7 @@ test("shell state helpers keep workbench inside the conversation rail and honor 
   assert.equal(overviewRailTarget({ overviewActive: false, activeWorkbench: "conversation" }), "conversation");
   assert.equal(overviewRailTarget({ overviewActive: false, activeWorkbench: "workbench" }), "conversation");
   assert.equal(overviewRailTarget({ overviewActive: false, activeWorkbench: "schedules" }), "schedules");
+  assert.equal(overviewRailTarget({ overviewActive: false, activeWorkbench: "remote" }), "remote");
 
   assert.deepEqual(resolveOverviewStartup({ hasConversation: true, hasProject: true }), {
     overviewActive: true,

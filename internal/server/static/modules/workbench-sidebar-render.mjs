@@ -11,10 +11,12 @@ export function primaryWorkbenchLayout(mode, { overviewActive = false } = {}) {
   const overview = overviewActive === true;
   const workbench = mode === "workbench" && !overview;
   const schedules = mode === "schedules" && !overview;
+  const remote = mode === "remote" && !overview;
   return {
     overview,
     workbench,
     schedules,
+    remote,
     hidden: {
       overviewDashboard: !overview,
       conversationPanel: overview || workbench || schedules,
@@ -25,8 +27,20 @@ export function primaryWorkbenchLayout(mode, { overviewActive = false } = {}) {
       "overview-mode": overview,
       "workbench-mode": workbench,
       "schedule-mode": schedules,
+      "remote-mode": remote,
     },
   };
+}
+
+export function appearanceAllowsPrimaryMode(mode, prefs = {}) {
+  if (mode === "schedules") return prefs.showSchedulesNav !== false;
+  if (mode === "remote") return prefs.showRemoteNav !== false;
+  return true;
+}
+
+export function resolvedPrimaryWorkbench(value, prefs = {}) {
+  const mode = ["workbench", "schedules", "remote"].includes(value) ? value : "conversation";
+  return appearanceAllowsPrimaryMode(mode, prefs) ? mode : "conversation";
 }
 
 // Renders the primary-mode session sidebar (conversations/workbench/
@@ -70,7 +84,7 @@ export function createWorkbenchSidebarRender({
   }
 
   function normalizedPrimaryWorkbench(value) {
-    return ["workbench", "schedules"].includes(value) ? value : "conversation";
+    return ["workbench", "schedules", "remote"].includes(value) ? value : "conversation";
   }
 
   function currentShellRailTarget() {
@@ -81,6 +95,7 @@ export function createWorkbenchSidebarRender({
     const taskWorkspace = getTaskWorkspace();
     const taskMode = state.activeWorkbench === "workbench";
     const scheduleMode = state.activeWorkbench === "schedules";
+    const remoteMode = state.activeWorkbench === "remote";
     const sidebar = $("sessionSidebar");
     const title = $("sessionSidebarTitle");
     const actions = $("sessionSidebarActions");
@@ -93,17 +108,18 @@ export function createWorkbenchSidebarRender({
     const mobileNewScheduleButton = $("mobileNewScheduleBtn");
     const mobileChooseDirectoryButton = $("mobileChooseDirectoryBtn");
     const mobileScheduleModeButton = $("mobileScheduleModeBtn");
-    const sidebarLabelKey = scheduleMode ? "shell.scheduleSidebar" : taskMode ? "workbench.sidebarLabel" : "shell.sessionSidebar";
-    const sidebarTitleKey = scheduleMode ? "shell.nav.schedules" : taskMode ? "workbench.sidebarTitle" : "shell.sessionTitle";
-    const sidebarActionsKey = scheduleMode ? "shell.scheduleActions" : taskMode ? "workbench.sidebarActions" : "shell.sessionActions";
-    const searchLabelKey = scheduleMode ? "shell.searchSchedulesLabel" : taskMode ? "workbench.searchContextLabel" : "shell.searchProjectsLabel";
-    const searchPlaceholderKey = scheduleMode ? "shell.searchSchedules" : taskMode ? "workbench.searchContext" : "shell.searchProjects";
-    const refreshKey = scheduleMode ? "shell.refreshSchedules" : taskMode ? "workbench.refreshTasks" : "shell.refreshSessions";
+    const mobileRemoteModeButton = $("mobileRemoteModeBtn");
+    const sidebarLabelKey = scheduleMode ? "shell.scheduleSidebar" : remoteMode ? "shell.remoteSidebar" : taskMode ? "workbench.sidebarLabel" : "shell.sessionSidebar";
+    const sidebarTitleKey = scheduleMode ? "shell.nav.schedules" : remoteMode ? "shell.nav.remote" : taskMode ? "workbench.sidebarTitle" : "shell.sessionTitle";
+    const sidebarActionsKey = scheduleMode ? "shell.scheduleActions" : remoteMode ? "shell.remoteActions" : taskMode ? "workbench.sidebarActions" : "shell.sessionActions";
+    const searchLabelKey = scheduleMode ? "shell.searchSchedulesLabel" : remoteMode ? "shell.searchRemoteLabel" : taskMode ? "workbench.searchContextLabel" : "shell.searchProjectsLabel";
+    const searchPlaceholderKey = scheduleMode ? "shell.searchSchedules" : remoteMode ? "shell.searchRemote" : taskMode ? "workbench.searchContext" : "shell.searchProjects";
+    const refreshKey = scheduleMode ? "shell.refreshSchedules" : remoteMode ? "shell.refreshRemote" : taskMode ? "workbench.refreshTasks" : "shell.refreshSessions";
 
     setTranslatedAttribute(sidebar, "aria-label", sidebarLabelKey);
     setTranslatedText(title, sidebarTitleKey);
     setTranslatedAttribute(actions, "aria-label", sidebarActionsKey);
-    setTranslatedAttribute(resizeHandle, "aria-label", scheduleMode ? "shell.resizeScheduleSidebar" : taskMode ? "workbench.resizeSidebar" : "shell.resizeSidebar");
+    setTranslatedAttribute(resizeHandle, "aria-label", scheduleMode ? "shell.resizeScheduleSidebar" : remoteMode ? "shell.resizeRemoteSidebar" : taskMode ? "workbench.resizeSidebar" : "shell.resizeSidebar");
     [searchToggle].forEach((button) => {
       setTranslatedAttribute(button, "title", searchLabelKey);
       setTranslatedAttribute(button, "aria-label", searchLabelKey);
@@ -114,10 +130,10 @@ export function createWorkbenchSidebarRender({
       setTranslatedAttribute(refreshButton, "title", refreshKey);
       setTranslatedAttribute(refreshButton, "aria-label", refreshKey);
     }
-    newProjectButton?.classList.toggle("hidden", taskMode);
-    if (!taskMode) syncNavigationCreateButton(newProjectButton);
+    newProjectButton?.classList.toggle("hidden", taskMode || remoteMode);
+    if (!taskMode && !remoteMode) syncNavigationCreateButton(newProjectButton);
     newTaskButton?.classList.toggle("hidden", !taskMode);
-    mobileChooseDirectoryButton?.classList.toggle("hidden", scheduleMode);
+    mobileChooseDirectoryButton?.classList.toggle("hidden", scheduleMode || remoteMode);
     mobileNewScheduleButton?.classList.toggle("hidden", !scheduleMode);
     if (mobileNewScheduleButton) {
       setTranslatedText(mobileNewScheduleButton, "shell.newSchedule");
@@ -129,6 +145,12 @@ export function createWorkbenchSidebarRender({
       setTranslatedText(mobileScheduleModeButton, mobileModeKey);
       setTranslatedAttribute(mobileScheduleModeButton, "title", mobileModeKey);
       setTranslatedAttribute(mobileScheduleModeButton, "aria-label", mobileModeKey);
+    }
+    if (mobileRemoteModeButton) {
+      const mobileRemoteKey = remoteMode ? "shell.nav.conversation" : "shell.nav.remote";
+      setTranslatedText(mobileRemoteModeButton, mobileRemoteKey);
+      setTranslatedAttribute(mobileRemoteModeButton, "title", mobileRemoteKey);
+      setTranslatedAttribute(mobileRemoteModeButton, "aria-label", mobileRemoteKey);
     }
     if (newTaskButton) {
       const workspaceState = taskWorkspace.getState();

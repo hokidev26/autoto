@@ -135,23 +135,53 @@ function transcriptBody(text) {
   return escapeHtml(text).replace(/\r\n|\r|\n/g, "<br>");
 }
 
-export function renderPeerNavigationHTML(hosts = [], { selectedTargetId = "", now = Date.now(), showWhenEmpty = false } = {}) {
+export function peerSnapshotErrorCopy(error) {
+  const status = Number(error?.status) || 0;
+  const message = String(typeof error === "string" ? error : (error?.message || ""));
+  if (status === 503 || /unavailable|disabled|sharing is disabled/i.test(message)) {
+    return t("peerCollaboration.navSnapshotSharingOff");
+  }
+  if (status === 401 || status === 403 || /authentication failed|unauthorized|forbidden/i.test(message)) {
+    return t("peerCollaboration.navSnapshotUnauthorized");
+  }
+  if (status === 502 || /protocol validation|peer request failed/i.test(message)) {
+    return t("peerCollaboration.navSnapshotUnreachable");
+  }
+  return t("peerCollaboration.navSnapshotError");
+}
+
+function renderPeerNavEmpty(host) {
+  if (!host?.error) {
+    return `<p class="peer-collaboration-nav-empty">${escapeHtml(t("peerCollaboration.navEmptyGrants"))}</p>`;
+  }
+  return `<div class="peer-collaboration-nav-empty peer-collaboration-nav-error">
+    <p>${escapeHtml(peerSnapshotErrorCopy(host.error))}</p>
+    <button type="button" class="peer-collaboration-nav-retry" data-peer-snapshot-retry="${escapeAttr(host.pairing?.id || "")}">${escapeHtml(t("peerCollaboration.navRetry"))}</button>
+  </div>`;
+}
+
+export function renderPeerNavigationHTML(hosts = [], { selectedTargetId = "", now = Date.now(), showWhenEmpty = false, query = "" } = {}) {
   const items = Array.isArray(hosts) ? hosts.filter((host) => host?.pairing?.id) : [];
+  const needle = String(query || "").trim().toLowerCase();
   if (!items.length) {
     if (!showWhenEmpty) return "";
     return `<div class="peer-collaboration-nav" data-peer-collaboration-nav>
-    <div class="peer-collaboration-nav-label">${escapeHtml(t("peerCollaboration.navSection"))}</div>
     <p class="peer-collaboration-nav-empty">${escapeHtml(t("peerCollaboration.navNoPairings"))}</p>
   </div>`;
   }
   const selected = textValue(selectedTargetId);
-  return `<div class="peer-collaboration-nav" data-peer-collaboration-nav>
-    <div class="peer-collaboration-nav-label">${escapeHtml(t("peerCollaboration.navSection"))}</div>
-    ${items.map((host) => {
+  const sections = items.map((host) => {
       const pairing = host.pairing;
-      const conversations = collectPeerConversations([host]);
       const hostName = textValue(pairing.displayName, pairing.endpointOrigin || pairing.id);
       const origin = textValue(pairing.endpointOrigin);
+      const hostMatches = !needle || `${hostName} ${origin}`.toLowerCase().includes(needle);
+      let conversations = collectPeerConversations([host]);
+      if (needle && !hostMatches) {
+        conversations = conversations.filter((conversation) => (
+          `${conversation.title} ${conversation.projectName}`.toLowerCase().includes(needle)
+        ));
+        if (!conversations.length && !host?.error) return "";
+      }
       const rows = conversations.length
         ? conversations.map((conversation) => {
           const active = conversation.targetId === selected;
@@ -172,7 +202,7 @@ export function renderPeerNavigationHTML(hosts = [], { selectedTargetId = "", no
               ${relativeTime ? `<span class="navigation-conversation-trailing"><span class="navigation-conversation-time">${escapeHtml(relativeTime)}</span></span>` : ""}
             </div>`;
         }).join("")
-        : `<p class="peer-collaboration-nav-empty">${escapeHtml(host.error ? t("peerCollaboration.navSnapshotError") : t("peerCollaboration.navEmptyGrants"))}</p>`;
+        : renderPeerNavEmpty(host);
       return `
         <section class="navigation-project-group peer-collaboration-nav-host" data-peer-host="${escapeAttr(pairing.id)}">
           <div class="navigation-conversation-row navigation-project-row peer-collaboration-nav-host-row">
@@ -184,7 +214,14 @@ export function renderPeerNavigationHTML(hosts = [], { selectedTargetId = "", no
           </div>
           <div class="navigation-project-conversations">${rows}</div>
         </section>`;
-    }).join("")}
+  }).filter(Boolean).join("");
+  if (!sections && needle) {
+    return `<div class="peer-collaboration-nav" data-peer-collaboration-nav>
+    <p class="peer-collaboration-nav-empty">${escapeHtml(t("peerCollaboration.navNoPairings"))}</p>
+  </div>`;
+  }
+  return `<div class="peer-collaboration-nav" data-peer-collaboration-nav>
+    ${sections}
   </div>`;
 }
 
@@ -292,6 +329,7 @@ export function createPeerCollaborationWorkspaceController({
   let blocked = false;
   let sending = false;
   let transcriptBound = false;
+  const runtimeOverrides = new Map();
 
   function selectedConversation() {
     if (!selected) return null;
@@ -301,13 +339,15 @@ export function createPeerCollaborationWorkspaceController({
   function selectedSummary() {
     const conversation = selectedConversation();
     if (!conversation) return null;
+    const override = runtimeOverrides.get(conversation.targetId) || {};
     return {
       title: conversation.title,
       hostName: conversation.hostName,
       scopes: conversation.scopes,
       scopeLabels: scopeLabels(conversation.scopes).join(" · "),
-      model: conversation.model,
-      reasoningEffort: conversation.reasoningEffort,
+      model: override.model || conversation.model,
+      reasoningEffort: override.reasoningEffort || conversation.reasoningEffort,
+      permissionMode: override.permissionMode || conversation.permissionModeCap,
       permissionModeCap: conversation.permissionModeCap,
     };
   }
@@ -323,7 +363,7 @@ export function createPeerCollaborationWorkspaceController({
         const snapshot = normalizePeerSnapshot(await request(snapshotURL(pairing.id)), pairing.id);
         return { pairing, snapshot, error: "" };
       } catch (error) {
-        return { pairing, snapshot: normalizePeerSnapshot({}, pairing.id), error: error?.message || String(error) };
+        return { pairing, snapshot: normalizePeerSnapshot({}, pairing.id), error };
       }
     }));
     if (sequence !== loadSequence) return;
@@ -387,6 +427,35 @@ export function createPeerCollaborationWorkspaceController({
     selectedError = "";
   }
 
+  async function updateRuntime(fields = {}) {
+    const conversation = selectedConversation();
+    if (!conversation || !hasScope(conversation.scopes, "send_task")) {
+      throw new Error(t("peerCollaboration.observeOnlyToast"));
+    }
+    const model = String(fields.model || "").trim();
+    const reasoningEffort = String(fields.reasoningEffort || "").trim();
+    const permissionMode = String(fields.permissionMode || "").trim();
+    if (!model && !reasoningEffort && !permissionMode) return selectedSummary();
+    const result = await request(`${endpoint}/peers/${encodeURIComponent(conversation.pairingId)}/agents/${encodeURIComponent(conversation.agentId)}/runtime`, {
+      method: "POST",
+      body: JSON.stringify({
+        ...(model ? { model } : {}),
+        ...(reasoningEffort ? { reasoningEffort } : {}),
+        ...(permissionMode ? { permissionMode } : {}),
+      }),
+    });
+    const previous = runtimeOverrides.get(conversation.targetId) || {};
+    runtimeOverrides.set(conversation.targetId, {
+      model: textValue(result.model, previous.model || conversation.model),
+      reasoningEffort: textValue(result.reasoningEffort, previous.reasoningEffort || conversation.reasoningEffort),
+      permissionMode: textValue(result.permissionMode, previous.permissionMode || conversation.permissionModeCap),
+    });
+    conversation.model = runtimeOverrides.get(conversation.targetId).model;
+    conversation.reasoningEffort = runtimeOverrides.get(conversation.targetId).reasoningEffort;
+    onChange?.();
+    return selectedSummary();
+  }
+
   async function sendTask(message) {
     const conversation = selectedConversation();
     if (!conversation || !hasScope(conversation.scopes, "send_task")) {
@@ -444,6 +513,7 @@ export function createPeerCollaborationWorkspaceController({
     select,
     clearSelection,
     sendTask,
+    updateRuntime,
     resolveApproval,
     bindTranscript,
     isSelected: () => Boolean(selected?.targetId),

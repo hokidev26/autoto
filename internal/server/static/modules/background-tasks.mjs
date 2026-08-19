@@ -1596,7 +1596,8 @@ export function createBackgroundTasksController({
     }
     if (headerButton) {
       const headerLabel = foregroundActivity?.text || t("backgroundTasks.headerTitle", { queued: summary.queuedCount, running: summary.runningCount });
-      headerButton.disabled = !agentId;
+      const peerComposer = typeof document !== "undefined" && document.body?.classList.contains("peer-conversation");
+      headerButton.disabled = !agentId && !peerComposer;
       headerButton.setAttribute("aria-expanded", trayOpen ? "true" : "false");
       headerButton.setAttribute("aria-busy", foregroundActivity ? "true" : "false");
       headerButton.setAttribute("aria-label", headerLabel);

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { api, apiDownload, onAPIAuthorizationFailure } from "./runtime.mjs";
+import { api, apiDownload, isAccountSessionAuthorizationFailure, onAPIAuthorizationFailure } from "./runtime.mjs";
 
 test("api synchronously reports 401 and 403 authorization failures", async () => {
   const previousFetch = globalThis.fetch;
@@ -108,4 +108,11 @@ test("apiDownload preserves the successful response body for Blob downloads", as
     if (previousFetch === undefined) delete globalThis.fetch;
     else globalThis.fetch = previousFetch;
   }
+});
+
+test("peer authentication failures are not Autoto account-session failures", () => {
+  assert.equal(isAccountSessionAuthorizationFailure({ status: 401, error: new Error("missing or invalid local API token") }), true);
+  assert.equal(isAccountSessionAuthorizationFailure({ status: 401, error: new Error("peer authentication failed") }), false);
+  assert.equal(isAccountSessionAuthorizationFailure({ status: 409, error: new Error("peer authentication failed") }), false);
+  assert.equal(isAccountSessionAuthorizationFailure({ status: 403, error: new Error("forbidden") }), false);
 });

@@ -130,6 +130,7 @@ body:is([data-background-mode="custom"][data-background-ready="true"], [data-bac
 .theme-icon-slot[data-theme-icon-slot="brand"] { --theme-icon-url: var(--autoto-icon-brand, none); --theme-icon-fallback-opacity: var(--autoto-icon-brand-fallback-opacity, 1); }
 .theme-icon-slot[data-theme-icon-slot="rail-home"] { --theme-icon-url: var(--autoto-icon-rail-home, none); --theme-icon-fallback-opacity: var(--autoto-icon-rail-home-fallback-opacity, 1); }
 .theme-icon-slot[data-theme-icon-slot="rail-conversation"] { --theme-icon-url: var(--autoto-icon-rail-conversation, none); --theme-icon-fallback-opacity: var(--autoto-icon-rail-conversation-fallback-opacity, 1); }
+.theme-icon-slot[data-theme-icon-slot="rail-remote"] { --theme-icon-url: var(--autoto-icon-rail-remote, none); --theme-icon-fallback-opacity: var(--autoto-icon-rail-remote-fallback-opacity, 1); }
 .theme-icon-slot[data-theme-icon-slot="rail-schedules"] { --theme-icon-url: var(--autoto-icon-rail-schedules, none); --theme-icon-fallback-opacity: var(--autoto-icon-rail-schedules-fallback-opacity, 1); }
 .theme-icon-slot[data-theme-icon-slot="rail-settings"] { --theme-icon-url: var(--autoto-icon-rail-settings, none); --theme-icon-fallback-opacity: var(--autoto-icon-rail-settings-fallback-opacity, 1); }
 .theme-icon-slot[data-theme-icon-slot="rail-collapse"] { --theme-icon-url: var(--autoto-icon-rail-collapse, none); --theme-icon-fallback-opacity: var(--autoto-icon-rail-collapse-fallback-opacity, 1); }

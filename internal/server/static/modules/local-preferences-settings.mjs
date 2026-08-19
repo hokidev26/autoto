@@ -904,6 +904,10 @@ export function createLocalPreferencesSettingsController({
           </select>
         </label>
       </header>
+      <section class="compact-settings-section appearance-nav-visibility-section">
+        <div class="compact-settings-section-copy"><h2>${escapeHtml(t("appearance.navVisibilityTitle"))}</h2><p data-settings-help-copy>${escapeHtml(t("appearance.navVisibilityMeta"))}</p></div>
+        <div class="compact-settings-section-controls compact-settings-switch-list">${renderAppearanceToggle("showSchedulesNav", t("appearance.showSchedulesNav"), t("appearance.showSchedulesNavDesc"), prefs.showSchedulesNav !== false)}${renderAppearanceToggle("showRemoteNav", t("appearance.showRemoteNav"), t("appearance.showRemoteNavDesc"), prefs.showRemoteNav !== false)}</div>
+      </section>
       <section class="compact-settings-section appearance-theme-section appearance-visual-section">
         <div class="compact-settings-section-copy"><h2>${escapeHtml(t("appearance.themeSectionTitle"))}</h2><p data-settings-help-copy>${escapeHtml(t("appearance.themeSectionMeta"))}</p></div>
         <div class="compact-settings-section-controls"><div class="appearance-theme-grid compact-settings-choice-grid four-column" role="radiogroup" aria-label="${escapeAttr(t("appearance.themeSectionTitle"))}">${renderThemePresetChoice("light", t("appearance.themeLight"), t("appearance.themeLightDesc"), prefs.themeRef?.kind !== "package" && prefs.themePreset === "light")}${renderThemePresetChoice("dark", t("appearance.themeDark"), t("appearance.themeDarkDesc"), prefs.themeRef?.kind !== "package" && prefs.themePreset === "dark")}${renderThemePresetChoice("cyber", t("appearance.themeCyber"), t("appearance.themeCyberDesc"), prefs.themeRef?.kind !== "package" && prefs.themePreset === "cyber")}${renderThemePresetChoice("cream", t("appearance.themeCream"), t("appearance.themeCreamDesc"), prefs.themeRef?.kind !== "package" && prefs.themePreset === "cream")}</div></div>

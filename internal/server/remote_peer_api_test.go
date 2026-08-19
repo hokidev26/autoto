@@ -280,6 +280,96 @@ func resolvePeerApproval(t *testing.T, app *Server, token string, body peercontr
 	return response
 }
 
+func TestPeerUpdateAgentRuntimeRequiresSendTask(t *testing.T) {
+	app, store, manager := newPeerAPITestServer(t)
+	enablePeerManagerForAPI(t, manager)
+	controller := newPeerAPIIdentity(t)
+	pairing, agent := createPeerAPIHostPairing(t, store, controller,
+		[]string{db.RemotePeerScopeObserve},
+		[]string{db.RemotePeerScopeObserve},
+		db.RemotePeerPermissionModeReadOnly,
+	)
+	token := peerAPISessionToken(t, manager, controller, pairing.ID)
+	request := peerAPITestRequest(t, http.MethodPost, "/api/peer/v1/agents/runtime", peercontrol.UpdateAgentRuntimeRequest{
+		PairingID: pairing.ID, AgentID: agent.ID, PermissionMode: "readOnly",
+	})
+	request.Header.Set("Authorization", "Bearer "+token)
+	response := httptest.NewRecorder()
+	app.Routes().ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("observe-only runtime update returned %d: %s", response.Code, response.Body.String())
+	}
+}
+
+func TestPeerUpdateAgentRuntimeClampsPermission(t *testing.T) {
+	app, store, manager := newPeerAPITestServer(t)
+	enablePeerManagerForAPI(t, manager)
+	controller := newPeerAPIIdentity(t)
+	pairing, agent := createPeerAPIHostPairing(t, store, controller,
+		[]string{db.RemotePeerScopeObserve, db.RemotePeerScopeSendTask},
+		[]string{db.RemotePeerScopeSendTask},
+		db.RemotePeerPermissionModeReadOnly,
+	)
+	token := peerAPISessionToken(t, manager, controller, pairing.ID)
+	overCap := peerAPITestRequest(t, http.MethodPost, "/api/peer/v1/agents/runtime", peercontrol.UpdateAgentRuntimeRequest{
+		PairingID: pairing.ID, AgentID: agent.ID, PermissionMode: "acceptEdits",
+	})
+	overCap.Header.Set("Authorization", "Bearer "+token)
+	overCapResponse := httptest.NewRecorder()
+	app.Routes().ServeHTTP(overCapResponse, overCap)
+	if overCapResponse.Code != http.StatusForbidden {
+		t.Fatalf("permission above grant cap returned %d: %s", overCapResponse.Code, overCapResponse.Body.String())
+	}
+
+	bypass := peerAPITestRequest(t, http.MethodPost, "/api/peer/v1/agents/runtime", peercontrol.UpdateAgentRuntimeRequest{
+		PairingID: pairing.ID, AgentID: agent.ID, PermissionMode: "bypassPermissions",
+	})
+	bypass.Header.Set("Authorization", "Bearer "+token)
+	bypassResponse := httptest.NewRecorder()
+	app.Routes().ServeHTTP(bypassResponse, bypass)
+	if bypassResponse.Code != http.StatusForbidden {
+		t.Fatalf("bypassPermissions runtime update returned %d: %s", bypassResponse.Code, bypassResponse.Body.String())
+	}
+
+	okRequest := peerAPITestRequest(t, http.MethodPost, "/api/peer/v1/agents/runtime", peercontrol.UpdateAgentRuntimeRequest{
+		PairingID: pairing.ID, AgentID: agent.ID, ReasoningEffort: "auto", PermissionMode: "readOnly",
+	})
+	okRequest.Header.Set("Authorization", "Bearer "+token)
+	okResponse := httptest.NewRecorder()
+	app.Routes().ServeHTTP(okResponse, okRequest)
+	if okResponse.Code != http.StatusOK {
+		t.Fatalf("allowed runtime update returned %d: %s", okResponse.Code, okResponse.Body.String())
+	}
+	var payload peercontrol.UpdateAgentRuntimeResponse
+	if err := json.Unmarshal(okResponse.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.AgentID != agent.ID || payload.PermissionMode != "readOnly" || payload.PermissionModeCap != db.RemotePeerPermissionModeReadOnly {
+		t.Fatalf("unexpected runtime response: %+v", payload)
+	}
+}
+
+func TestPeerUpdateAgentRuntimeRejectsEmptyPatch(t *testing.T) {
+	app, store, manager := newPeerAPITestServer(t)
+	enablePeerManagerForAPI(t, manager)
+	controller := newPeerAPIIdentity(t)
+	pairing, agent := createPeerAPIHostPairing(t, store, controller,
+		[]string{db.RemotePeerScopeObserve, db.RemotePeerScopeSendTask},
+		[]string{db.RemotePeerScopeSendTask},
+		db.RemotePeerPermissionModeAcceptEdits,
+	)
+	token := peerAPISessionToken(t, manager, controller, pairing.ID)
+	request := peerAPITestRequest(t, http.MethodPost, "/api/peer/v1/agents/runtime", peercontrol.UpdateAgentRuntimeRequest{
+		PairingID: pairing.ID, AgentID: agent.ID,
+	})
+	request.Header.Set("Authorization", "Bearer "+token)
+	response := httptest.NewRecorder()
+	app.Routes().ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("empty runtime update returned %d: %s", response.Code, response.Body.String())
+	}
+}
+
 // allow_session is a wider capability than approve_once, so the pairing must
 // carry approve_session before the host accepts the decision.
 func TestPeerResolveApprovalAllowSessionRequiresPairingScope(t *testing.T) {

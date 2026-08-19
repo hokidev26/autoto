@@ -355,10 +355,13 @@ body.white-shell.theme-light .terminal-pref-select select {
     left: calc(76px + var(--session-sidebar-width) - 3px);
   }
   body.white-shell.theme-light .app-shell {
-    grid-template-columns: 76px var(--session-sidebar-width) minmax(360px, 1fr) clamp(260px, calc(50vw - 186px), 1200px);
+    grid-template-columns: 76px var(--session-sidebar-width) minmax(520px, 1fr) clamp(260px, calc(50vw - 186px), 1200px);
   }
   body.white-shell.theme-light .app-shell.terminal-collapsed {
-    grid-template-columns: 76px var(--session-sidebar-width) minmax(360px, 1fr) 0;
+    grid-template-columns: 76px var(--session-sidebar-width) minmax(520px, 1fr) 0;
+  }
+  body.white-shell.theme-light .chat-panel {
+    min-width: 520px;
   }
 }
 
@@ -366,6 +369,14 @@ body.white-shell.theme-light .terminal-pref-select select {
   body.white-shell.theme-light .app-shell,
   body.white-shell.theme-light .app-shell.terminal-collapsed {
     grid-template-columns: 68px var(--session-sidebar-width) minmax(0, 1fr);
+  }
+  /* Keep the panel in the grid while the user drags the outer window. A
+     three-column track left column 4 implicit, and the old overlay rule then
+     painted it over the chat. Chat uses minmax(0, 1fr) so a 520px floor does not overflow. */
+  body.white-shell.theme-light .app-shell.details-open,
+  body.white-shell.theme-light .app-shell.background-tasks-open,
+  body.white-shell.theme-light .app-shell.preview-open {
+    grid-template-columns: 68px var(--session-sidebar-width) minmax(0, 1fr) var(--utility-panel-width, clamp(260px, calc(50vw - 186px), 1200px));
   }
   body.white-shell.theme-light .global-rail { grid-column: 1; }
   body.white-shell.theme-light .sidebar { grid-column: 2; }
@@ -928,13 +939,7 @@ body.white-shell.theme-light .workspace-preview-dock-mode .workspace-preview-fra
 body.white-shell.theme-light .workspace-preview-dock-mode .workspace-preview-log-panel { display: none; }
 body.white-shell.theme-light .workspace-preview-dock-mode .workspace-preview-empty { display: grid; place-items: center; min-height: 100%; color: #6b7485; }
 
-@media (min-width: 1280px) {
-  body.white-shell.theme-light .app-shell.details-open,
-  body.white-shell.theme-light .app-shell.background-tasks-open,
-  body.white-shell.theme-light .app-shell.preview-open {
-    grid-template-columns: 76px var(--session-sidebar-width) minmax(360px, 1fr) var(--utility-panel-width, clamp(260px, calc(50vw - 186px), 1200px));
-  }
-
+@media (min-width: 768px) {
   body.white-shell.theme-light .app-shell.details-open .utility-panel-resize-handle,
   body.white-shell.theme-light .app-shell.background-tasks-open .utility-panel-resize-handle,
   body.white-shell.theme-light .app-shell.preview-open .utility-panel-resize-handle {
@@ -943,9 +948,15 @@ body.white-shell.theme-light .workspace-preview-dock-mode .workspace-preview-emp
   }
 }
 
+@media (min-width: 1280px) {
+  body.white-shell.theme-light .app-shell.details-open,
+  body.white-shell.theme-light .app-shell.background-tasks-open,
+  body.white-shell.theme-light .app-shell.preview-open {
+    grid-template-columns: 76px var(--session-sidebar-width) minmax(520px, 1fr) var(--utility-panel-width, clamp(260px, calc(50vw - 186px), 1200px));
+  }
+}
+
 @media (min-width: 768px) and (max-width: 1279px) {
-  body.white-shell.theme-light .utility-panel { position: fixed; inset: 0 0 0 auto; z-index: 36; width: min(520px, 58vw); box-shadow: -18px 0 50px rgba(15, 23, 42, .14); }
-  body.white-shell.theme-light .workspace-preview-dock-mode .workspace-modal-card { width: var(--utility-panel-width, min(560px, 58vw)); }
   body.white-shell.theme-light .workspace-browser-toolbar { grid-template-columns: repeat(4, 32px) minmax(86px, 1fr) auto; }
   body.white-shell.theme-light .workspace-browser-viewports { grid-column: 1 / -1; justify-content: flex-end; }
 }
@@ -976,20 +987,21 @@ body.white-shell.theme-light .workspace-preview-dock-mode .workspace-preview-emp
   body.white-shell.theme-light .legacy-about-version-row strong { font-size: 14px; }
   body.white-shell.theme-light .legacy-about-update-head { flex-direction: column; align-items: stretch; }
   body.white-shell.theme-light .legacy-about-update-button { width: 100%; }
-  /* Background-task tray stays a sheet so a finished run does not bury the
-     composer. Conversation details is a read of the current thread: a 62dvh
-     cap left the transcript and composer showing through the sheet, which
-     reads as the panel leaking. Cover the chat from the topbar down. */
+  /* Phone overlays cover the chat from the topbar down. A 62dvh sheet left the
+     composer peeking through under background tasks, which read as only the
+     workspace/model cube remaining. Details already fills; the task tray matches. */
   body.white-shell.theme-light .utility-panel {
     position: fixed;
-    inset: 64px 0 auto;
+    inset: 64px 0 0;
     z-index: 46;
     width: 100%;
-    max-height: min(62dvh, calc(100dvh - 64px));
+    height: calc(100dvh - 64px);
+    max-height: none;
     display: flex;
     flex-direction: column;
-    border-bottom: 1px solid var(--line, #38383c);
-    box-shadow: 0 18px 40px rgba(0, 0, 0, .34);
+    border-bottom: 0;
+    box-shadow: none;
+    background: var(--ws-card);
   }
   body.white-shell.theme-light .conversation-details-panel {
     inset: 64px 0 0;

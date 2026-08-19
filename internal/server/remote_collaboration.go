@@ -110,6 +110,7 @@ func (s *Server) mountRemoteCollaborationRoutes(router chi.Router) {
 		router.Post("/claims/{id}/poll", s.pollRemoteCollaborationClaim)
 		router.Get("/peers/{id}/snapshot", s.proxyRemoteCollaborationSnapshot)
 		router.Post("/peers/{id}/agents/{agentId}/tasks", s.proxyRemoteCollaborationTask)
+		router.Post("/peers/{id}/agents/{agentId}/runtime", s.proxyRemoteCollaborationRuntime)
 		router.Post("/peers/{id}/agents/{agentId}/approvals/{approvalId}", s.proxyRemoteCollaborationApproval)
 	})
 }
@@ -171,7 +172,7 @@ func (s *Server) updateRemoteCollaborationSharing(w http.ResponseWriter, r *http
 		return
 	}
 	if err := runtime.manager.SetSharingEnabled(request.Enabled); err != nil {
-		writePeerControlError(w, err)
+		writeRemoteCollaborationOwnerError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"sharingEnabled": runtime.manager.SharingEnabled()})
@@ -456,13 +457,13 @@ func (s *Server) connectRemoteCollaborationPeer(w http.ResponseWriter, r *http.R
 		AllowLoopbackHTTPForTests: runtime.loopbackHTTPAllowed(),
 	})
 	if err != nil {
-		writePeerControlError(w, err)
+		writeRemoteCollaborationOwnerError(w, err)
 		return
 	}
 	prepared, err := client.PrepareClaim(invitation, displayName, settings.InstallationID)
 	if err != nil {
 		_ = client.Close()
-		writePeerControlError(w, err)
+		writeRemoteCollaborationOwnerError(w, err)
 		return
 	}
 	if err := s.recordRequiredPeerAudit(r.Context(), audit.Event{
@@ -476,7 +477,7 @@ func (s *Server) connectRemoteCollaborationPeer(w http.ResponseWriter, r *http.R
 	response, err := client.Claim(r.Context(), prepared)
 	if err != nil {
 		_ = client.Close()
-		writePeerControlError(w, err)
+		writeRemoteCollaborationOwnerError(w, err)
 		return
 	}
 	runtime.storeClaim(invitation.InvitationID, outboundPeerClaim{invitation: invitation, proof: prepared.Proof, client: client, createdAt: s.now().UTC()})
@@ -496,13 +497,13 @@ func (s *Server) pollRemoteCollaborationClaim(w http.ResponseWriter, r *http.Req
 	}
 	response, err := claim.client.PollClaim(r.Context(), peercontrol.PollClaimRequest{Proof: claim.proof})
 	if err != nil {
-		writePeerControlError(w, err)
+		writeRemoteCollaborationOwnerError(w, err)
 		return
 	}
 	if response.Status == db.RemotePairingInvitationStatusApproved {
 		if err := validateApprovedClaimResponse(claim.invitation, response); err != nil {
 			runtime.removeClaim(invitationID)
-			writePeerControlError(w, err)
+			writeRemoteCollaborationOwnerError(w, err)
 			return
 		}
 		scopes := make([]string, 0, len(response.Scopes))
@@ -558,7 +559,7 @@ func (s *Server) proxyRemoteCollaborationSnapshot(w http.ResponseWriter, r *http
 		PairingID: pairing.ID, AgentID: strings.TrimSpace(r.URL.Query().Get("agentId")), Before: strings.TrimSpace(r.URL.Query().Get("before")), MessageLimit: messageLimit, RunLimit: runLimit,
 	})
 	if err != nil {
-		writePeerControlError(w, err)
+		writeRemoteCollaborationOwnerError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -600,10 +601,58 @@ func (s *Server) proxyRemoteCollaborationTask(w http.ResponseWriter, r *http.Req
 	}
 	response, err := client.SendTask(r.Context(), peercontrol.SendTaskRequest{PairingID: pairing.ID, AgentID: agentID, Message: request.Message, RequestID: request.RequestID})
 	if err != nil {
-		writePeerControlError(w, err)
+		writeRemoteCollaborationOwnerError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, response)
+}
+
+type proxyRemoteCollaborationRuntimeRequest struct {
+	Model           string `json:"model,omitempty"`
+	ReasoningEffort string `json:"reasoningEffort,omitempty"`
+	PermissionMode  string `json:"permissionMode,omitempty"`
+}
+
+func (s *Server) proxyRemoteCollaborationRuntime(w http.ResponseWriter, r *http.Request) {
+	_, pairing, client, ok := s.remoteControllerClient(w, r, chi.URLParam(r, "id"))
+	if !ok {
+		return
+	}
+	var request proxyRemoteCollaborationRuntimeRequest
+	if err := decodePeerJSON(w, r, &request); err != nil {
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
+		return
+	}
+	request.Model = strings.TrimSpace(request.Model)
+	request.ReasoningEffort = strings.ToLower(strings.TrimSpace(request.ReasoningEffort))
+	request.PermissionMode = strings.TrimSpace(request.PermissionMode)
+	if request.Model == "" && request.ReasoningEffort == "" && request.PermissionMode == "" {
+		writeError(w, http.StatusBadRequest, "remote agent runtime update requires model, reasoningEffort, or permissionMode")
+		return
+	}
+	agentID := chi.URLParam(r, "agentId")
+	if err := s.recordRequiredPeerAudit(r.Context(), audit.Event{
+		Category: "peer", Action: "agent.runtime.forward", Actor: "local-api", SubjectType: "peer_agent", SubjectID: agentID,
+		Outcome: "success", Risk: "high", Details: map[string]any{
+			"pairingId": pairing.ID, "remoteAgentId": agentID, "model": request.Model != "",
+			"reasoningEffort": request.ReasoningEffort != "", "permissionMode": request.PermissionMode != "",
+		},
+	}); err != nil {
+		writeError(w, http.StatusInternalServerError, "remote agent runtime was not updated because audit persistence failed")
+		return
+	}
+	response, err := client.UpdateAgentRuntime(r.Context(), peercontrol.UpdateAgentRuntimeRequest{
+		PairingID: pairing.ID, AgentID: agentID, Model: request.Model, ReasoningEffort: request.ReasoningEffort, PermissionMode: request.PermissionMode,
+	})
+	if err != nil {
+		if errors.Is(err, peercontrol.ErrProtocol) {
+			writeError(w, http.StatusBadGateway, "peer host does not support remote agent runtime updates")
+			return
+		}
+		writeRemoteCollaborationOwnerError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 type proxyRemoteCollaborationApprovalRequest struct {
@@ -641,7 +690,7 @@ func (s *Server) proxyRemoteCollaborationApproval(w http.ResponseWriter, r *http
 		PairingID: pairing.ID, AgentID: agentID, ApprovalID: approvalID, Decision: request.Decision, Reason: strings.TrimSpace(request.Reason),
 	})
 	if err != nil {
-		writePeerControlError(w, err)
+		writeRemoteCollaborationOwnerError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -671,7 +720,7 @@ func (s *Server) remoteControllerClient(w http.ResponseWriter, r *http.Request, 
 		case errors.Is(err, errRemotePeerPairingInactive):
 			writeError(w, http.StatusGone, "remote peer pairing is inactive")
 		default:
-			writePeerControlError(w, err)
+			writeRemoteCollaborationOwnerError(w, err)
 		}
 		return nil, db.RemotePeerPairing{}, nil, false
 	}
@@ -768,11 +817,22 @@ func (s *Server) recordRequiredPeerAudit(ctx context.Context, event audit.Event)
 }
 
 func writePeerControlError(w http.ResponseWriter, err error) {
+	writePeerControlMappedError(w, err, http.StatusUnauthorized)
+}
+
+func writeRemoteCollaborationOwnerError(w http.ResponseWriter, err error) {
+	// Owner-facing /api/remote-collaboration is already past the local token
+	// (or full remote) gate. A dead peer credential must not reuse HTTP 401:
+	// the UI treats 401 as "this Autoto account session is gone".
+	writePeerControlMappedError(w, err, http.StatusConflict)
+}
+
+func writePeerControlMappedError(w http.ResponseWriter, err error, unauthorizedStatus int) {
 	switch {
 	case errors.Is(err, peercontrol.ErrDisabled), errors.Is(err, peercontrol.ErrClosed):
 		writeError(w, http.StatusServiceUnavailable, "remote collaboration is unavailable")
 	case errors.Is(err, peercontrol.ErrUnauthorized):
-		writeError(w, http.StatusUnauthorized, "peer authentication failed")
+		writeError(w, unauthorizedStatus, "peer authentication failed")
 	case errors.Is(err, peercontrol.ErrConflict):
 		writeError(w, http.StatusConflict, "peer request conflicts with current state")
 	case errors.Is(err, peercontrol.ErrProtocol):

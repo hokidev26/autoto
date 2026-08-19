@@ -272,6 +272,7 @@ test("primary mode rejects invalid values as conversation", () => {
 
     assert.equal(normalizePrimaryModePreference("workbench"), "workbench");
     assert.equal(normalizePrimaryModePreference("schedules"), "schedules");
+    assert.equal(normalizePrimaryModePreference("remote"), "remote");
     assert.equal(normalizePrimaryModePreference("CONVERSATION"), defaultPrimaryModePreference);
     assert.equal(controller.loadPrimaryModePreference(), defaultPrimaryModePreference);
     assert.equal(controller.setPrimaryModePreference("schedules"), "schedules");
@@ -354,6 +355,8 @@ test("appearance presets default to light and migrate version 2 and unversioned 
     terminalDefaultOpen: false,
     showEventLog: true,
     showThroughput: false,
+    showSchedulesNav: true,
+    showRemoteNav: true,
   });
 
   withBrowserStorage(new MemoryStorage([[appearancePrefsKey, JSON.stringify({
@@ -469,6 +472,8 @@ test("appearance backup retains the normalized theme preset", () => {
       terminalDefaultOpen: false,
       showEventLog: true,
       showThroughput: false,
+      showSchedulesNav: true,
+      showRemoteNav: true,
     });
     assert.equal(controller.createLocalPreferencesBackup().preferences[appearancePrefsKey].themePreset, "cream");
   });
@@ -515,6 +520,11 @@ test("appearance settings render a flat compact form with four accessible preset
   assert.match(markup, /data-appearance-field="fontSize" data-appearance-value="small"/);
   assert.match(markup, /data-appearance-field="fontSize" data-appearance-value="medium"/);
   assert.match(markup, /data-appearance-field="fontSize" data-appearance-value="large"/);
+  assert.match(markup, /appearance-nav-visibility-section/);
+  assert.match(markup, /data-appearance-toggle="showThroughput"/);
+  assert.match(markup, /data-appearance-toggle="showSchedulesNav"/);
+  assert.match(markup, /data-appearance-toggle="showRemoteNav"/);
+  assert.ok(markup.indexOf("appearance-nav-visibility-section") < markup.indexOf("appearance-theme-section"));
   assert.match(markup, /id="appearanceBackgroundFile"[^>]*accept="image\/jpeg,image\/png,image\/webp"/);
   assert.match(markup, /id="appearanceBackgroundMode"/);
   assert.match(markup, /id="appearanceBackgroundDim"[^>]*type="range"/);
@@ -648,6 +658,30 @@ test("throughput badges stay off until the appearance setting turns them on", ()
   // not as "field missing therefore truthy".
   withBrowserStorage(new MemoryStorage([[appearancePrefsKey, JSON.stringify({ styleVersion: 4, themePreset: "light", theme: "light" })]]), () => {
     assert.equal(createController().loadAppearancePreferences().showThroughput, false);
+  });
+});
+
+test("schedule and remote navigation stay visible until the appearance setting hides them", () => {
+  withBrowserStorage(new MemoryStorage(), (body) => {
+    const controller = createController();
+    assert.equal(controller.currentAppearancePreferences().showSchedulesNav, true);
+    assert.equal(controller.currentAppearancePreferences().showRemoteNav, true);
+    controller.applyAppearancePreferences();
+    assert.equal(body.classList.contains("hide-schedules-nav"), false);
+    assert.equal(body.classList.contains("hide-remote-nav"), false);
+
+    controller.setAppearancePreference("showSchedulesNav", false);
+    assert.equal(body.classList.contains("hide-schedules-nav"), true);
+    assert.equal(JSON.parse(localStorage.getItem(appearancePrefsKey)).showSchedulesNav, false);
+
+    controller.setAppearancePreference("showRemoteNav", false);
+    assert.equal(body.classList.contains("hide-remote-nav"), true);
+  });
+
+  withBrowserStorage(new MemoryStorage([[appearancePrefsKey, JSON.stringify({ styleVersion: 5, themePreset: "light", theme: "light" })]]), () => {
+    const appearance = createController().loadAppearancePreferences();
+    assert.equal(appearance.showSchedulesNav, true);
+    assert.equal(appearance.showRemoteNav, true);
   });
 });
 

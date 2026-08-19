@@ -11,7 +11,7 @@ All notable changes to Autoto are tracked here. The project is still an experime
 - Settings → Usage history now has today / 7-day / 30-day / month presets, chart vs records tabs, a stacked provider bar for count and token metrics, grouped usage/performance summaries, and CSV export of the currently loaded rows. Average latency still uses the line chart. Provider names are not truncated, and credentials stay off the page.
 - Plan-mode drafts now go through an isolated reviewer that must return `needs_human` when the plan itself admits the goal was not achieved. That verdict automatically starts one more plan-mode run with the reviewer's correction unless plan reflection is turned off on that conversation (default on; on/off under plan mode in the permission menu); a second `needs_human`, `pass`, `unavailable`, or `block_recommended` still waits for a human. Reviewer pass is still not approval and never creates an execute run.
 - Model settings now include a plan-review model. Leave it blank to follow the active conversation; if a dedicated reviewer cannot be resolved or is not configured, review also uses that conversation model.
-- Shared remote conversations now appear in the controller's conversation sidebar. Opening one shows the host's redacted transcript and can send tasks or approvals through the existing peer proxies; remote agent ids never enter local `/api/agents` routes.
+- Shared remote conversations appear under a top-level Remote collaboration rail category, grouped by host. Opening one shows the host's redacted transcript and can send tasks or approvals through the existing peer proxies; remote agent ids never enter local `/api/agents` routes. Settings → Appearance can hide Schedules and Remote collaboration on this device without changing server policy.
 
 ### Changed
 
@@ -27,7 +27,8 @@ All notable changes to Autoto are tracked here. The project is still an experime
 - Drawer and account-menu Sign out use the account session when local users exist, so a collaborator returns to the login screen. Remote-access logout (access password) remains only when there is no account lock.
 - Sharing the workspace URL now has a product title, description, and icon for chat-app link previews. Messengers previously scraped the loading-shell labels instead.
 - On a phone, the Git sheet scrolls as one column so the commit box and timeline stay reachable under the diff.
-- Reload paints from the on-device UI cache immediately and revalidates in the background. The stylesheet is served as one file instead of sixteen `@import` round trips, and the boot overlay no longer waits on a long fade.
+- Appearance → 導覽項目 sits at the top of Settings → Appearance (show schedules / show remote collaboration). Conversation mode no longer keeps a leftover remote block under local folders; that list lives only in the Remote rail category.
+- Direct loopback UI assets revalidate before paint so a replaced desktop exe is not stuck on yesterday's JavaScript. Tunneled sessions still use stale-while-revalidate. The stylesheet is served as one file instead of sixteen `@import` round trips, and the boot overlay no longer waits on a long fade.
 - The conversation Git glyph is a three-node branch. The previous overlapping curves read as a knot at header size.
 - The sidebar Autoto mark is a hollow smile with filled eye dots. The circle had been filling black, and the old `h.01` eye strokes vanished once the face was unfilled.
 - Plan cards render in the transcript in place of the raw JSON blob, executed and cancelled plans stay visible after reopen, and the synthetic execute/replan prompts compact to short system notices.
@@ -43,14 +44,20 @@ All notable changes to Autoto are tracked here. The project is still an experime
 - About licenses lists reviewed direct and indirect modules from `go.mod` instead of leaving most of them unknown.
 - Connecting to another Autoto puts the invitation code on its own row, with the display name and submit control beside each other instead of a stretched three-cell form grid.
 - Pending-invitation pairing scopes are compact two-column rows instead of tall checkbox cards.
-- A shared remote conversation uses the same left-aligned chat bubbles as a local thread. The composer shows the host's model and thinking strength as read-only chips; changing them still happens on the host.
+- A shared remote conversation uses the same left-aligned chat bubbles as a local thread. The composer can change the host model, thinking strength, and permission mode (clamped to the grant cap; `send_task` required). Workspace tools stay visible in the header; files, Git, and the terminal still run on the host.
+- Pairing authorization grants whole projects through the same picker as collaborator memberships, instead of adding conversations one by one. Checking a project no longer rebuilds the whole settings page.
+- Remote collaboration settings split “let someone connect in” from “connect to another Autoto”. The sharing switch states that paired devices also need it on after a restart, and a host pairing with no grants asks the owner to pick conversations.
 
 ### Fixed
 
+- Revoking a remote pairing or turning sharing off no longer signed the local operator out. A dead peer credential on the owner API is now a 409, not a 401 that the UI treated as an expired Autoto account session.
 - Reconnecting the same Autoto devices no longer fails with a generic conflict. A repeat claim from the same identity is idempotent, and a new invitation from that peer replaces the previous active pairing.
-- Narrowing the chat column no longer stretches the retry/status chip away from the context ring beside the model picker.
+- Dragging the outer window narrower with background tasks (or files / spec / preview / conversation details) open keeps that panel as a shrinking docked column. It previously jumped to a right-edge overlay below 1280px. The desktop window can shrink to 768px, matching that layout split.
+- Dragging a docked right-hand panel (files / spec / preview / background tasks / conversation details) stops once the chat column reaches 520px, above the composer’s 480px icon-rail tier, so the transcript stays readable.
+- Narrowing the window with background tasks open no longer leaves a half-height sheet over the chat with only the composer’s workspace/model cube showing. The tray fills under the topbar like conversation details.
+- The controller sidebar explains why a paired host snapshot failed (sharing off after restart, expired credential, or unreachable host) and offers retry instead of a generic “could not load” line.
 - The remote-collaboration pairing card no longer leaves a blank second column beside the sharing switch and fingerprint.
-- The conversation sidebar keeps a Remote collaboration section visible on the controller, even before a pairing has shared any agents.
+- The Remote collaboration rail category stays visible on the controller even before a pairing has shared any agents.
 - Revoked and expired remote-collaboration pairings can be deleted from settings so inactive records do not accumulate. Active pairings still have to be revoked first.
 - Settings → Remote collaboration keeps a gap between the generate-invitation row and the invitation-code card, and between stacked pairing records. The delete control for a revoked pairing sits next to the status badge.
 - The “N steps” activity disclosure keeps its chevron off until hover or keyboard focus, and then shows it on the right instead of the left.
@@ -67,7 +74,7 @@ All notable changes to Autoto are tracked here. The project is still an experime
 
 - Workspace, spec board, Settings network/remote-collaboration cards, and conversation-detail rows collapse against their own panel width instead of the viewport.
 - The conversation header's workspace-feature tool card shrinks when a docked panel squeezes the chat column.
-- On a phone, conversation details, the spec board, and the workspace explorer fill the column under the topbar so the chat no longer shows through a 62dvh / 420px dock.
+- On a phone, conversation details, background tasks, the spec board, and the workspace explorer fill the column under the topbar so the chat no longer shows through a 62dvh / 420px dock.
 - A narrow workspace files card drills from the file list into the editor instead of squeezing both columns, and Dynamic Spec no longer inherits the Settings 40vh header grid.
 - Remote collaboration's pairing card is a vertical intro with a sharing switch and labeled fingerprint/URL rows, instead of a hero flex row of nested stat cards.
 - A failed temporary-tunnel start keeps the server error on the tunnel card instead of returning the card to an idle “not started” state.

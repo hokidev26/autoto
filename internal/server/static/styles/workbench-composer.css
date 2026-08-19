@@ -490,6 +490,7 @@ body.white-shell.theme-light .composer-status.is-busy {
   max-width: min(46vw, 220px);
   flex: 0 1 auto;
   justify-content: flex-start;
+  margin-left: 0;
   gap: 7px;
   padding-right: 4px;
 }

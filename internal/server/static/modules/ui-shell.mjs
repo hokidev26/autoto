@@ -169,10 +169,8 @@ export function sidebarWidthFromPointer(clientX, sidebarLeft) {
 }
 
 // The utility panel (conversation details / background tasks / workspace
-// preview) shares the app shell's 4th grid column. It only joins the grid at
-// the >=1280px breakpoint used by workbench.css/extras.css; below that it is
-// a fixed-position overlay with its own width, so the resize handle has no
-// effect (and stays hidden) there.
+// preview) shares the app shell's 4th grid column from 768px up. Below that
+// it is a phone sheet, so the resize handle has no effect and stays hidden.
 export const utilityPanelWidthPreferenceKey = "autoto.ui.utilityPanelWidth";
 // Low enough to reach the panel's narrow, phone-shaped tier. The old 320 floor
 // stopped the drag before the compact layout could ever apply, which read as the
@@ -185,12 +183,11 @@ export const minUtilityPanelWidth = 260;
 // ceiling below is the real guard, so this only has to be past any layout the
 // available space will actually permit.
 export const maxUtilityPanelWidth = 1200;
-// The chat column's floor, held back from the panel. Lowered from 420 so dragging
-// from the right can take the composer into its narrow, phone-shaped tier, which
-// begins at a 480px container. A 420 floor left the chat sitting just above that
-// tier, which is why only the sidebar appeared able to produce the compact layout.
-export const utilityPanelChatMinWidth = 360;
-export const utilityPanelDesktopBreakpoint = 1280;
+// The chat column's floor, held back from the panel. Stays above the composer's
+// 480px phone-shaped tier: that tier turns the toolbar into icons and truncates
+// the transcript, which read as the middle column disappearing.
+export const utilityPanelChatMinWidth = 520;
+export const utilityPanelDesktopBreakpoint = 768;
 
 export function normalizeUtilityPanelWidth(value, fallback = maxUtilityPanelWidth, { maxAvailable } = {}) {
   const normalizedFallback = Number.isFinite(Number(fallback)) ? Number(fallback) : maxUtilityPanelWidth;
@@ -934,7 +931,12 @@ export function createUIShellController({
       if (fallbackWidth) separator.setAttribute?.("aria-valuenow", String(Math.round(fallbackWidth)));
     };
     const handleViewportChange = () => {
-      if (!wideLayout()) finishDrag();
+      if (!wideLayout()) {
+        finishDrag();
+        // Phone sheets do not honour the docked pixel width. Leave the
+        // remembered size alone until the window is wide enough to dock again.
+        return;
+      }
       if (width != null) applyWidth(width);
     };
 

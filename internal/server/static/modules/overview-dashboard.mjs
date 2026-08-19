@@ -249,6 +249,7 @@ export function overviewNavigationRoute(action) {
 export function overviewRailTarget(value = {}) {
   if (value?.overviewActive === true) return "home";
   if (value?.activeWorkbench === "schedules") return "schedules";
+  if (value?.activeWorkbench === "remote") return "remote";
   return "conversation";
 }
 

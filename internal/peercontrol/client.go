@@ -334,6 +334,22 @@ func (c *Client) SendTask(ctx context.Context, request SendTaskRequest) (SendTas
 	return response, nil
 }
 
+// UpdateAgentRuntime patches the host agent's model, thinking strength, or
+// permission mode. It is not retried after a 401, because a duplicate patch
+// could still race a later local change on the host.
+func (c *Client) UpdateAgentRuntime(ctx context.Context, request UpdateAgentRuntimeRequest) (UpdateAgentRuntimeResponse, error) {
+	token, err := c.sessionToken(ctx, request.PairingID)
+	if err != nil {
+		return UpdateAgentRuntimeResponse{}, err
+	}
+	var response UpdateAgentRuntimeResponse
+	if err := c.doJSON(ctx, http.MethodPost, updateAgentRuntimeEndpoint, request, token, &response); err != nil {
+		c.clearSessionTokenIfUnauthorized(token, err)
+		return UpdateAgentRuntimeResponse{}, err
+	}
+	return response, nil
+}
+
 // ResolveApproval sends a non-idempotent approval decision and never retries it
 // automatically after an authorization failure.
 func (c *Client) ResolveApproval(ctx context.Context, request ResolveApprovalRequest) (ResolveApprovalResponse, error) {

@@ -4,20 +4,22 @@ body.white-shell.theme-light .composer-wrap {
   container-type: inline-size;
 }
 
-/* Retrying used to grow the task chip across the leftover gutter, so the
-   refresh glyph sat on the left while the context ring stayed on the right.
-   Hug the retry label and park it next to that ring on every width. */
-body.white-shell.theme-light .composer-toolbar:has(.composer-task-summary.has-foreground-activity) > .composer-task-summary.has-foreground-activity {
+/* Every live step paints on this same chip: idle, thinking, retrying,
+   generating, waiting, approval, compacting, and queued/running tasks.
+   Hug the label, but keep the chip on the left of the toolbar — the
+   context ring already has margin-left: auto, so parking this chip with
+   auto shoved “思考中” / “Retrying 3/11” into the model-control cluster. */
+body.white-shell.theme-light .composer-toolbar > .composer-task-summary {
+  margin-left: 0;
+}
+body.white-shell.theme-light .composer-toolbar:has(.composer-task-summary.has-foreground-activity) > .composer-task-summary.has-foreground-activity,
+body.white-shell.theme-light .composer-toolbar:has(.composer-task-summary.has-task) > .composer-task-summary.has-task {
   width: auto;
   min-width: 0;
   max-width: min(220px, 46vw);
   flex: 0 1 auto;
-  margin-left: auto;
-  margin-right: 0;
-}
-
-body.white-shell.theme-light .composer-toolbar:has(.composer-task-summary.has-foreground-activity) > .context-usage-btn {
   margin-left: 0;
+  margin-right: 0;
 }
 
 @media (min-width: 768px) {
@@ -176,17 +178,20 @@ body.white-shell.theme-light .composer-toolbar:has(.composer-task-summary.has-fo
       display: none;
     }
 
-    body.white-shell.theme-light .composer-task-summary.has-foreground-activity {
+    body.white-shell.theme-light .composer-task-summary.has-foreground-activity,
+    body.white-shell.theme-light .composer-task-summary.has-task {
       width: auto;
       min-width: 30px;
       max-width: min(180px, 42vw);
       flex: 0 1 auto;
+      margin-left: 0;
       grid-template-columns: 14px minmax(0, 1fr);
       gap: 8px;
       place-items: center start;
     }
 
-    body.white-shell.theme-light .composer-task-summary.has-foreground-activity .header-task-summary-copy {
+    body.white-shell.theme-light .composer-task-summary.has-foreground-activity .header-task-summary-copy,
+    body.white-shell.theme-light .composer-task-summary.has-task .header-task-summary-copy {
       display: block;
     }
 
@@ -432,7 +437,7 @@ body.white-shell.theme-light .composer-toolbar .toolbar-lightning-btn {
   body.white-shell.theme-light .composer-toolbar {
     min-height: 32px;
     height: 32px;
-    justify-content: flex-end;
+    justify-content: flex-start;
     gap: 4px;
     overflow: visible;
   }
@@ -457,7 +462,7 @@ body.white-shell.theme-light .composer-toolbar .toolbar-lightning-btn {
     flex: 0 0 auto;
     justify-content: flex-end;
     gap: 4px;
-    margin-left: 0;
+    margin-left: auto;
     overflow: visible;
   }
 
@@ -2229,6 +2234,11 @@ body.white-shell.theme-light.theme-dark #settingsContentBody .compact-settings-s
     display: none !important;
   }
 
+  body.white-shell.theme-light.peer-conversation #headerTaskSummaryBtn,
+  body.white-shell.theme-light.peer-conversation #headerTaskSummaryBtn:disabled {
+    display: inline-grid !important;
+  }
+
   body.white-shell.theme-light .composer-task-summary .header-task-summary-copy {
     display: flex !important;
     min-width: 0;
@@ -3160,6 +3170,16 @@ body.white-shell.theme-light.theme-dark .overview-inline-error { border-color: c
 .schedule-run-item span { color: var(--ws-muted, #747e90); font-size: 10px; }
 
 body.white-shell.theme-light.schedule-mode .conversation-mode-only { display: none !important; }
+body.white-shell.theme-light.remote-mode .conversation-mode-only { display: none !important; }
+body.hide-schedules-nav [data-global-rail-target="schedules"],
+body.hide-schedules-nav #mobileScheduleModeBtn,
+body.hide-schedules-nav #mobileNewScheduleBtn { display: none !important; }
+body.hide-remote-nav [data-global-rail-target="remote"],
+body.hide-remote-nav #mobileRemoteModeBtn { display: none !important; }
+/* Remote conversations belong under the Remote rail item. An older conversation
+   renderer still appended this block under local folders; hide it unless the
+   Remote category is actually open. */
+body:not(.remote-mode) .peer-collaboration-nav { display: none !important; }
 /* Plain white like every other sidebar header. The blue gradient, accent edge
    and tinted title marked the schedule sidebar as a separate surface, which
    read as a different application rather than a mode of the same one. */
@@ -3450,16 +3470,25 @@ body.white-shell.theme-light.theme-dark .context-clear-confirmation :is(strong, 
     grid-template-columns: var(--global-rail-layout-width) var(--session-sidebar-layout-width) minmax(0, 1fr) 0;
   }
 
-  /* The rule above zeroes the 4th grid column whenever the terminal is
-     collapsed. Opening a utility panel (conversation details / background
-     tasks / workspace preview) also collapses the terminal first, which
-     otherwise leaves the now-visible panel sitting in a zero-width column.
-     Restore the column width for that combined state; matches the open
-     width workbench.css already uses at the >=1280px breakpoint. */
+  /* Opening a utility panel (conversation details / background tasks /
+     workspace preview) must restore that column on every non-phone width.
+     Below 1280px these panels used to become position:fixed overlays, so
+     dragging the outer window covered the chat instead of shrinking the
+     docked column. Phone layouts still overlay; see max-width: 767px. */
   body.white-shell.theme-light .app-shell.terminal-collapsed.details-open,
   body.white-shell.theme-light .app-shell.terminal-collapsed.background-tasks-open,
   body.white-shell.theme-light .app-shell.terminal-collapsed.preview-open {
     grid-template-columns: var(--global-rail-layout-width) var(--session-sidebar-layout-width) minmax(0, 1fr) var(--utility-panel-width, clamp(260px, calc(50vw - 186px), 1200px));
+  }
+
+  /* Wide enough that a 520px chat floor fits beside the rails and a docked
+     panel. Below 1280px the same floor would overflow the desktop min window. */
+  @media (min-width: 1280px) {
+    body.white-shell.theme-light .app-shell.terminal-collapsed.details-open,
+    body.white-shell.theme-light .app-shell.terminal-collapsed.background-tasks-open,
+    body.white-shell.theme-light .app-shell.terminal-collapsed.preview-open {
+      grid-template-columns: var(--global-rail-layout-width) var(--session-sidebar-layout-width) minmax(520px, 1fr) var(--utility-panel-width, clamp(260px, calc(50vw - 186px), 1200px));
+    }
   }
 
   body.white-shell.theme-light .app-shell.global-rail-collapsed {

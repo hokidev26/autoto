@@ -70,6 +70,11 @@ test("translations interpolate values and fall back to keys", () => {
   assert.equal(t("memory.noMatches", { query: "demo" }, "en"), "No memories match “demo”.");
   assert.equal(t("mcp.discoveredTools", { count: 3 }, "zh-TW"), "已發現 3 個 MCP 工具。");
   assert.equal(t("shell.nav.conversation", {}, "zh-TW"), "對話");
+  assert.equal(t("shell.nav.remote", {}, "zh-TW"), "遠端協作");
+  assert.equal(t("shell.nav.remote", {}, "zh-CN"), "远端协作");
+  assert.notEqual(t("shell.nav.remote", {}, "zh-TW"), t("shell.nav.remote", {}, "zh-CN"));
+  assert.equal(t("peerCollaboration.navSection", {}, "zh-TW"), "遠端協作");
+  assert.equal(t("appearance.navVisibilityTitle", {}, "zh-TW"), "導覽項目");
   assert.equal(t("shell.nav.schedules", {}, "zh-CN"), "排程");
   assert.equal(t("common.enabled", {}, "en"), "Enabled");
   assert.equal(t("shell.nav.settings", {}, "en"), "Settings");

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { primaryWorkbenchLayout } from "./workbench-sidebar-render.mjs";
+import { appearanceAllowsPrimaryMode, primaryWorkbenchLayout, resolvedPrimaryWorkbench } from "./workbench-sidebar-render.mjs";
 
 const panels = ["overviewDashboard", "conversationPanel", "workbenchPanel", "schedulePanel"];
 
@@ -14,7 +14,7 @@ function activeBodyClasses(layout) {
 }
 
 test("exactly one primary panel is visible for every mode and overview combination", () => {
-  for (const mode of ["conversation", "workbench", "schedules"]) {
+  for (const mode of ["conversation", "workbench", "schedules", "remote"]) {
     for (const overviewActive of [false, true]) {
       const layout = primaryWorkbenchLayout(mode, { overviewActive });
       assert.deepEqual(
@@ -35,14 +35,16 @@ test("each mode shows its own panel when overview is inactive", () => {
   assert.deepEqual(visiblePanels(primaryWorkbenchLayout("conversation")), ["conversationPanel"]);
   assert.deepEqual(visiblePanels(primaryWorkbenchLayout("workbench")), ["workbenchPanel"]);
   assert.deepEqual(visiblePanels(primaryWorkbenchLayout("schedules")), ["schedulePanel"]);
+  assert.deepEqual(visiblePanels(primaryWorkbenchLayout("remote")), ["conversationPanel"]);
 
   assert.deepEqual(activeBodyClasses(primaryWorkbenchLayout("conversation")), []);
   assert.deepEqual(activeBodyClasses(primaryWorkbenchLayout("workbench")), ["workbench-mode"]);
   assert.deepEqual(activeBodyClasses(primaryWorkbenchLayout("schedules")), ["schedule-mode"]);
+  assert.deepEqual(activeBodyClasses(primaryWorkbenchLayout("remote")), ["remote-mode"]);
 });
 
 test("overview is a full-page surface that suppresses every other panel", () => {
-  for (const mode of ["conversation", "workbench", "schedules"]) {
+  for (const mode of ["conversation", "workbench", "schedules", "remote"]) {
     const layout = primaryWorkbenchLayout(mode, { overviewActive: true });
     assert.deepEqual(visiblePanels(layout), ["overviewDashboard"], `overview must win over mode=${mode}`);
     assert.deepEqual(activeBodyClasses(layout), ["overview-mode"]);
@@ -50,7 +52,17 @@ test("overview is a full-page surface that suppresses every other panel", () => 
     // it must not be reported as an active surface while overview is up.
     assert.equal(layout.workbench, false);
     assert.equal(layout.schedules, false);
+    assert.equal(layout.remote, false);
   }
+});
+
+test("hidden appearance nav items fall back to conversation", () => {
+  assert.equal(appearanceAllowsPrimaryMode("schedules", { showSchedulesNav: false }), false);
+  assert.equal(appearanceAllowsPrimaryMode("remote", { showRemoteNav: false }), false);
+  assert.equal(appearanceAllowsPrimaryMode("conversation", { showSchedulesNav: false, showRemoteNav: false }), true);
+  assert.equal(resolvedPrimaryWorkbench("remote", { showRemoteNav: false }), "conversation");
+  assert.equal(resolvedPrimaryWorkbench("schedules", { showSchedulesNav: true }), "schedules");
+  assert.equal(resolvedPrimaryWorkbench("remote", {}), "remote");
 });
 
 test("an unknown mode falls back to showing the conversation panel", () => {

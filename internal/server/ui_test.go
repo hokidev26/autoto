@@ -107,6 +107,34 @@ func TestUIAssetsRevalidateInsteadOfRedownloading(t *testing.T) {
 	}
 }
 
+func TestLoopbackUIAssetsMustRevalidateBeforePaint(t *testing.T) {
+	// Desktop WebView talks to 127.0.0.1. Stale-while-revalidate would keep
+	// yesterday's modules on screen after a replaced exe; loopback is fast
+	// enough to wait for the 304. Tunneled clients keep SWR (see the test above).
+	srv := &Server{}
+	router := chi.NewRouter()
+	srv.mountUI(router)
+
+	req := httptest.NewRequest(http.MethodGet, "/ui/modules/dom.mjs", nil)
+	req.Host = "127.0.0.1:7788"
+	req.RemoteAddr = "127.0.0.1:4321"
+	first := httptest.NewRecorder()
+	router.ServeHTTP(first, req)
+	if first.Code != http.StatusOK {
+		t.Fatalf("expected the asset to be served, got %d", first.Code)
+	}
+	cache := first.Header().Get("Cache-Control")
+	if !strings.Contains(cache, "private") || !strings.Contains(cache, "must-revalidate") {
+		t.Fatalf("loopback UI assets must revalidate before paint, got Cache-Control %q", cache)
+	}
+	if strings.Contains(cache, "stale-while-revalidate") {
+		t.Fatalf("loopback must not serve stale JS after a replaced exe, got Cache-Control %q", cache)
+	}
+	if first.Header().Get("CDN-Cache-Control") != "no-store" {
+		t.Fatalf("CDN-Cache-Control = %q, want no-store", first.Header().Get("CDN-Cache-Control"))
+	}
+}
+
 func TestUIStylesheetIsServedAsOneCascade(t *testing.T) {
 	// styles.css is an @import index on disk so tests can audit cascade order.
 	// Serving those imports as-is made a phone wait on sixteen stylesheet

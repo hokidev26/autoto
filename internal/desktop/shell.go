@@ -220,7 +220,9 @@ func runWailsShell(ctx context.Context, rt *app.Runtime, url string, logger *slo
 		Title:     "Autoto",
 		Width:     width,
 		Height:    height,
-		MinWidth:  900,
+		// 768 matches the CSS phone/desktop split: a docked utility panel can shrink
+		// with the outer window instead of jumping to an overlay at 1280px.
+		MinWidth:  768,
 		MinHeight: 600,
 		URL:       url,
 		// Marker for frontend platform adapters (native dialogs via HTTP bridge).

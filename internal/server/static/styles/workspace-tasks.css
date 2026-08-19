@@ -2191,6 +2191,8 @@ body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="
 }
 .background-task-panel-body {
   flex: 1;
+  width: 100%;
+  min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -2240,6 +2242,8 @@ body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="
 .background-task-tray-head span { overflow: hidden; color: var(--muted, #6b7280); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .background-task-tray-grid {
   flex: 1;
+  width: 100%;
+  min-width: 0;
   min-height: 0;
   display: grid;
   /* The tab strip is one fixed row; everything else belongs to the detail pane.
@@ -3075,7 +3079,7 @@ body.white-shell.theme-light .background-task-bubble.role-assistant .message-rol
 /* The details panel this card lives in is user-resizable, so its width has
    nothing to do with the window's. Keep two columns on a phone: folding to
    one column made eight short tiles into a long stack with even more gap. */
-.conversation-details-body { container-name: conversation-details-panel; container-type: inline-size; }
+.conversation-details-body { width: 100%; min-width: 0; container-name: conversation-details-panel; container-type: inline-size; }
 @container conversation-details-panel (max-width: 420px) {
   .conversation-continuation-card { margin-bottom: 10px; padding: 10px; }
   .conversation-continuation-card > header { margin-bottom: 8px; }
@@ -3245,6 +3249,13 @@ body.white-shell.theme-light .background-task-bubble.role-assistant .message-rol
 #settingsContentBody .peer-collaboration-page {
   display: grid;
   gap: 16px;
+}
+#settingsContentBody .peer-collaboration-lane-kicker {
+  margin: 0 0 4px;
+  color: var(--settings-muted-fg, #64748b);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .06em;
 }
 #settingsContentBody .peer-collaboration-hero-head { align-items: flex-start; }
 #settingsContentBody .peer-collaboration-hero-tools {
@@ -3529,6 +3540,10 @@ body.white-shell.theme-light .background-task-bubble.role-assistant .message-rol
   font-size: 12px;
   line-height: 1.45;
 }
+#settingsContentBody .peer-collaboration-project-picker {
+  display: grid;
+  gap: 8px;
+}
 .peer-collaboration-claim { display: grid; gap: 8px; }
 
 /* Peer collaboration — dark mode */
@@ -3574,6 +3589,13 @@ body.white-shell.theme-light.theme-dark .peer-collaboration-meta-row + .peer-col
   gap: 8px;
   margin: 0 0 12px;
 }
+body.remote-mode .peer-collaboration-nav {
+  margin: 0;
+}
+body.remote-mode .peer-collaboration-nav-label { display: none; }
+body.remote-mode .peer-collaboration-nav-empty {
+  padding-left: 10px;
+}
 .peer-collaboration-nav-label {
   padding: 8px 10px 0;
   color: var(--ws-muted, #64748b);
@@ -3589,6 +3611,29 @@ body.white-shell.theme-light.theme-dark .peer-collaboration-meta-row + .peer-col
   color: var(--ws-muted, #64748b);
   font-size: 12px;
   line-height: 1.4;
+}
+.peer-collaboration-nav-error {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
+.peer-collaboration-nav-error > p {
+  margin: 0;
+  padding: 0;
+  color: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+.peer-collaboration-nav-retry {
+  margin: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--ws-border, #e5e7eb);
+  border-radius: 8px;
+  background: var(--ws-card, #fff);
+  color: var(--ws-text, #1f2937);
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
 }
 .peer-collaboration-transcript-banner {
   margin: 0 16px 12px;
@@ -3622,15 +3667,20 @@ body.white-shell.theme-light.theme-dark .peer-collaboration-meta-row + .peer-col
 .peer-collaboration-approval-warning { color: var(--ws-muted, #64748b); font-size: 12px; }
 .peer-collaboration-approval-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 
-body.peer-conversation #conversationToolGroup,
 body.peer-conversation #copyConversationBtn,
 body.peer-conversation #openProviderLoginBtn,
 body.peer-conversation #contextUsageBtn,
-body.peer-conversation #headerTaskSummaryBtn,
 body.peer-conversation .composer-attach-wrap,
 body.peer-conversation #slashCommandPalette,
 body.peer-conversation #mentionPalette {
   display: none !important;
+}
+body.white-shell.theme-light.peer-conversation:not(.project-operation-context) #conversationToolGroup,
+body.white-shell.theme-light.peer-conversation:not(.project-operation-context) #conversationToolGroup [data-project-context-only] {
+  display: inline-flex !important;
+}
+body.white-shell.theme-light.peer-conversation:not(.project-operation-context) #headerTaskSummaryBtn {
+  display: grid !important;
 }
 body.white-shell.theme-light.peer-conversation .composer-controls {
   margin-left: auto;
@@ -3640,7 +3690,7 @@ body.white-shell.theme-light.peer-conversation:not(.project-operation-context) .
 body.white-shell.theme-light.peer-conversation:not(.project-operation-context) [data-project-context-only].composer-permission-field {
   display: flex !important;
 }
-body.white-shell.theme-light.peer-conversation .composer-select-trigger {
+body.peer-conversation-readonly .composer-select-trigger {
   pointer-events: none;
   cursor: default;
 }
@@ -4540,17 +4590,20 @@ body.white-shell.theme-light.theme-dark .composer-task-summary.active {
     display: none;
   }
 
-  body.white-shell.theme-light .composer-task-summary.has-foreground-activity {
+  body.white-shell.theme-light .composer-task-summary.has-foreground-activity,
+  body.white-shell.theme-light .composer-task-summary.has-task {
     width: auto;
     min-width: 28px;
     max-width: min(180px, 58vw);
     flex: 0 1 auto;
+    margin-left: 0;
     grid-template-columns: 14px minmax(0, max-content);
     gap: 8px;
     place-items: center start;
   }
 
-  body.white-shell.theme-light .composer-task-summary.has-foreground-activity .header-task-summary-copy {
+  body.white-shell.theme-light .composer-task-summary.has-foreground-activity .header-task-summary-copy,
+  body.white-shell.theme-light .composer-task-summary.has-task .header-task-summary-copy {
     display: flex;
   }
 }

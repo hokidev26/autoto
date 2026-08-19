@@ -11,6 +11,7 @@ const {
   createPeerTargetId,
   normalizePeerSnapshot,
   parsePeerTargetId,
+  peerSnapshotErrorCopy,
   peerWorkspaceFetchAllowed,
   renderPeerNavigationHTML,
   renderPeerTranscriptHTML,
@@ -70,9 +71,22 @@ test("the sidebar lists remote conversations without local navigation ids", () =
   assert.match(html, /data-peer-target="peer:pairing-1:agent-1"/);
   assert.match(html, /國鋒專用 修改網站/);
   assert.match(html, /aria-current="true"/);
+  assert.doesNotMatch(html, /peer-collaboration-nav-label/);
   assert.doesNotMatch(html, /data-navigation-target/);
   assert.doesNotMatch(html, /data-navigation-kind="conversation"/);
   assert.doesNotMatch(html, /draggable="true"/);
+});
+
+test("remote navigation search keeps matching hosts and hides unrelated conversations", () => {
+  const html = renderPeerNavigationHTML([{ pairing, snapshot: normalizePeerSnapshot(snapshotPayload()) }], {
+    query: "國鋒",
+  });
+  assert.match(html, /data-peer-target="peer:pairing-1:agent-1"/);
+  const missed = renderPeerNavigationHTML([{ pairing, snapshot: normalizePeerSnapshot(snapshotPayload()) }], {
+    query: "no-such-host",
+  });
+  assert.doesNotMatch(missed, /data-peer-target/);
+  assert.match(missed, /peer-collaboration-nav-empty/);
 });
 
 test("an empty host grant set explains that nothing is shared yet", () => {
@@ -82,6 +96,7 @@ test("an empty host grant set explains that nothing is shared yet", () => {
   }]);
   assert.match(html, /peer-collaboration-nav-empty/);
   assert.doesNotMatch(html, /data-peer-target/);
+  assert.doesNotMatch(html, /data-peer-snapshot-retry/);
 });
 
 test("an allowed controller with no pairings still shows the sidebar section", () => {
@@ -212,6 +227,15 @@ test("the workspace controller loads controller snapshots and sends through the 
         } : {});
       }
       if (path.endsWith("/tasks")) return { status: "accepted" };
+      if (path.endsWith("/runtime")) {
+        return {
+          agentId: "agent-1",
+          model: "google:gemini-3-flash",
+          reasoningEffort: "high",
+          permissionMode: "acceptEdits",
+          permissionModeCap: "acceptEdits",
+        };
+      }
       return {};
     },
   });
@@ -228,6 +252,12 @@ test("the workspace controller loads controller snapshots and sends through the 
   const send = requests.find((entry) => entry.method === "POST" && entry.path.endsWith("/tasks"));
   assert.equal(send.body.message, "請繼續");
   assert.match(String(send.body.requestId || ""), /[A-Za-z0-9._:-]+/);
+  await controller.updateRuntime({ model: "google:gemini-3-flash", reasoningEffort: "high", permissionMode: "acceptEdits" });
+  const runtime = requests.find((entry) => entry.method === "POST" && entry.path.endsWith("/runtime"));
+  assert.deepEqual(runtime.body, { model: "google:gemini-3-flash", reasoningEffort: "high", permissionMode: "acceptEdits" });
+  assert.equal(controller.selectedSummary()?.model, "google:gemini-3-flash");
+  assert.equal(controller.selectedSummary()?.reasoningEffort, "high");
+  assert.equal(controller.selectedSummary()?.permissionMode, "acceptEdits");
 });
 
 test("a 403 stops further controller polling instead of retrying", async () => {
@@ -244,4 +274,57 @@ test("a 403 stops further controller polling instead of retrying", async () => {
   await controller.refresh({ force: true });
   assert.equal(calls, 1);
   assert.equal(controller.renderNavigationHTML(), "");
+});
+
+test("peer snapshot errors map sharing-off, credential, and unreachable cases", () => {
+  const sharingOff = new Error("remote collaboration is unavailable");
+  sharingOff.status = 503;
+  assert.match(peerSnapshotErrorCopy(sharingOff), /重啟後還沒再打開|重启后还没再打开|after a restart/);
+  const unauthorized = new Error("peer authentication failed");
+  unauthorized.status = 409;
+  assert.match(peerSnapshotErrorCopy(unauthorized), /憑證已失效|凭证已失效|credential is no longer valid/);
+  const unreachable = new Error("peer protocol validation failed");
+  unreachable.status = 502;
+  assert.match(peerSnapshotErrorCopy(unreachable), /連不上對方|连不上对方|Could not reach the other Autoto/);
+});
+
+test("a host snapshot 409 keeps the pairing visible and does not block later polls", async () => {
+  let calls = 0;
+  const controller = createPeerCollaborationWorkspaceController({
+    request: async (path) => {
+      calls += 1;
+      if (path.endsWith("/status")) {
+        return { pairings: [{ pairing, grants: [] }] };
+      }
+      const error = new Error("peer authentication failed");
+      error.status = 409;
+      throw error;
+    },
+  });
+  await controller.refresh({ force: true });
+  await controller.refresh({ force: true });
+  assert.ok(calls > 1);
+  const html = controller.renderNavigationHTML();
+  assert.match(html, /data-peer-snapshot-retry="pairing-1"/);
+  assert.match(html, /憑證已失效|凭证已失效|credential is no longer valid/);
+  assert.doesNotMatch(html, /data-peer-target/);
+});
+
+test("a host snapshot 503 keeps the pairing visible and offers retry", async () => {
+  const controller = createPeerCollaborationWorkspaceController({
+    request: async (path) => {
+      if (path.endsWith("/status")) {
+        return { pairings: [{ pairing, grants: [] }] };
+      }
+      const error = new Error("remote collaboration is unavailable");
+      error.status = 503;
+      throw error;
+    },
+  });
+  await controller.refresh({ force: true });
+  const html = controller.renderNavigationHTML();
+  assert.match(html, /https:\/\/autoto\.example/);
+  assert.match(html, /data-peer-snapshot-retry="pairing-1"/);
+  assert.match(html, /重啟後還沒再打開|重启后还没再打开|after a restart/);
+  assert.doesNotMatch(html, /data-peer-target/);
 });

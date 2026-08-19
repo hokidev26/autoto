@@ -160,6 +160,8 @@ export function createPeerCollaborationSettingsController({
   const authorizationDrafts = new Map();
   let openApproval = "";
   let openAuthorization = "";
+  let pickerEvents = null;
+  let floatingMenu = null;
 
   const rt = (key, params = {}) => t(`peerCollaboration.${key}`, params);
 
@@ -183,7 +185,7 @@ export function createPeerCollaborationSettingsController({
 
   function approvalDraft(id) {
     if (!approvalDrafts.has(id)) {
-      approvalDrafts.set(id, { scopes: ["observe"], expiresInHours: 24, grants: [] });
+      approvalDrafts.set(id, { scopes: ["observe"], expiresInHours: 24, grants: [], permissionModeCap: "readOnly" });
     }
     return approvalDrafts.get(id);
   }
@@ -191,15 +193,17 @@ export function createPeerCollaborationSettingsController({
   function authorizationDraft(id) {
     if (!authorizationDrafts.has(id)) {
       const current = pairing(id);
+      const grants = (current?.grants || []).map((grant) => ({
+        projectId: grant.projectId,
+        agentId: grant.agentId,
+        scopes: [...grant.scopes],
+        permissionModeCap: grant.permissionModeCap,
+      }));
       authorizationDrafts.set(id, {
         scopes: current ? [...current.scopes] : ["observe"],
         expiresInHours: 0,
-        grants: (current?.grants || []).map((grant) => ({
-          projectId: grant.projectId,
-          agentId: grant.agentId,
-          scopes: [...grant.scopes],
-          permissionModeCap: grant.permissionModeCap,
-        })),
+        permissionModeCap: grants.find((grant) => peerPermissionCaps.includes(grant.permissionModeCap))?.permissionModeCap || "readOnly",
+        grants,
       });
     }
     return authorizationDrafts.get(id);
@@ -391,46 +395,40 @@ export function createPeerCollaborationSettingsController({
       </label>`).join("");
   }
 
-  function renderGrantRows(kind, id, draft) {
-    if (!draft.grants.length) {
-      return `<p class="settings-card-description">${escapeHtml(rt("grantsEmpty"))}</p>`;
-    }
-    const available = normalizePeerScopes(draft.scopes);
-    return draft.grants.map((grant, index) => `
-      <div class="peer-collaboration-grant-row settings-card-content" data-peer-grant-index="${index}">
-        <div class="peer-collaboration-grant-head">
-          <strong>${escapeHtml(agentLabel(grant.agentId))}</strong>
-          <button class="settings-action-btn subtle" type="button" data-peer-action="remove-grant" data-peer-draft-kind="${escapeAttr(kind)}" data-peer-draft-id="${escapeAttr(id)}" data-peer-grant-index="${index}">${escapeHtml(rt("removeGrant"))}</button>
-        </div>
-        <label class="settings-form-field">${escapeHtml(rt("permissionModeCap"))}
-          <select class="settings-field" data-peer-grant-cap="${index}" data-peer-draft-kind="${escapeAttr(kind)}" data-peer-draft-id="${escapeAttr(id)}">
-            ${peerPermissionCaps.map((cap) => `<option value="${escapeAttr(cap)}" ${grant.permissionModeCap === cap ? "selected" : ""}>${escapeHtml(rt(`cap.${cap}`))}</option>`).join("")}
-          </select>
-        </label>
-        <div class="peer-collaboration-grant-scopes">
-          ${available.length ? available.map((scope) => `
-            <label class="settings-check-row peer-collaboration-scope">
-              <input type="checkbox" data-peer-grant-scope="${escapeAttr(scope)}" data-peer-grant-index="${index}" data-peer-draft-kind="${escapeAttr(kind)}" data-peer-draft-id="${escapeAttr(id)}" ${grant.scopes.includes(scope) ? "checked" : ""} />
-              <span>${escapeHtml(scopeLabel(scope))}</span>
-            </label>`).join("") : `<p class="settings-card-description">${escapeHtml(rt("selectPairingScopesFirst"))}</p>`}
-        </div>
-      </div>`).join("");
-  }
-
-  function renderGrantPicker(kind, id, draft) {
-    const used = new Set(draft.grants.map((grant) => grant.agentId));
-    const options = agentOptions.filter((option) => !used.has(option.agentId));
+  function renderProjectGrantPicker(kind, id, draft) {
+    const projects = collectProjectGrantOptions(agentOptions);
     if (!agentOptions.length) {
       return `<p class="settings-card-description">${escapeHtml(rt("agentsUnavailable"))}</p>`;
     }
-    if (!options.length) {
-      return `<p class="settings-card-description">${escapeHtml(rt("allAgentsGranted"))}</p>`;
+    if (!projects.length) {
+      return `<p class="settings-card-description">${escapeHtml(rt("grantsEmpty"))}</p>`;
     }
+    const granted = new Set(draft.grants.map((grant) => grant.agentId));
+    const selectedCount = projects.filter((project) => project.agents.some((agent) => granted.has(agent.agentId))).length;
+    const cap = peerPermissionCaps.includes(draft.permissionModeCap) ? draft.permissionModeCap : "readOnly";
     return `
-      <label class="settings-form-field">${escapeHtml(rt("addGrant"))}
-        <select class="settings-field" data-peer-add-grant="1" data-peer-draft-kind="${escapeAttr(kind)}" data-peer-draft-id="${escapeAttr(id)}">
-          <option value="">${escapeHtml(rt("addGrantPlaceholder"))}</option>
-          ${options.map((option) => `<option value="${escapeAttr(option.agentId)}">${escapeHtml(option.projectName ? `${option.projectName} / ${option.agentTitle}` : option.agentTitle)}</option>`).join("")}
+      <div class="user-admin-project-picker peer-collaboration-project-picker" data-peer-project-picker>
+        <button type="button" class="user-admin-project-trigger" data-peer-project-picker-toggle aria-expanded="false" aria-haspopup="listbox">
+          <span class="user-admin-project-trigger-copy">
+            <strong>${escapeHtml(rt("grants"))}</strong>
+            <small data-peer-project-picker-summary>${escapeHtml(rt("projectGrantSummary", { count: selectedCount }))}</small>
+          </span>
+          <span class="composer-select-chevron" aria-hidden="true">▾</span>
+        </button>
+        <div class="user-admin-project-checks" hidden>
+          ${projects.map((project) => {
+            const selected = project.agents.some((agent) => granted.has(agent.agentId));
+            return `
+              <label>
+                <input type="checkbox" data-peer-project-grant="${escapeAttr(project.projectId)}" data-peer-project-name="${escapeAttr(project.projectName)}" data-peer-draft-kind="${escapeAttr(kind)}" data-peer-draft-id="${escapeAttr(id)}" ${selected ? "checked" : ""} />
+                <span>${escapeHtml(project.projectName)}</span>
+              </label>`;
+          }).join("")}
+        </div>
+      </div>
+      <label class="settings-form-field">${escapeHtml(rt("permissionModeCap"))}
+        <select class="settings-field" data-peer-grant-cap-all="1" data-peer-draft-kind="${escapeAttr(kind)}" data-peer-draft-id="${escapeAttr(id)}">
+          ${peerPermissionCaps.map((value) => `<option value="${escapeAttr(value)}" ${cap === value ? "selected" : ""}>${escapeHtml(rt(`cap.${value}`))}</option>`).join("")}
         </select>
       </label>`;
   }
@@ -450,8 +448,7 @@ export function createPeerCollaborationSettingsController({
         <div class="peer-collaboration-editor-block">
           <strong>${escapeHtml(rt("grants"))}</strong>
           <p class="settings-card-description">${escapeHtml(rt("grantsHint"))}</p>
-          ${renderGrantRows(kind, id, draft)}
-          ${renderGrantPicker(kind, id, draft)}
+          ${renderProjectGrantPicker(kind, id, draft)}
         </div>
         <div class="settings-action-row settings-card-footer">
           <button class="settings-action-btn subtle" type="button" data-peer-action="${escapeAttr(kind === "approval" ? "close-approve" : "close-auth")}" data-peer-id="${escapeAttr(id)}">${escapeHtml(rt("cancel"))}</button>
@@ -513,10 +510,11 @@ export function createPeerCollaborationSettingsController({
     const editing = openAuthorization === item.id;
     const active = item.status === "active";
     const grants = item.localRole === "controller"
-      ? `<p class="settings-card-description">${escapeHtml(rt("controllerGrantsHint"))}</p>`
+      ? `<p class="settings-card-description">${escapeHtml(rt("controllerGrantsHint"))}</p>
+         <div class="settings-inline-alert settings-alert" role="status">${escapeHtml(rt("controllerReadHint"))}</div>`
       : item.grants.length
         ? `<ul class="peer-collaboration-grant-list">${item.grants.map((grant) => `<li>${escapeHtml(agentLabel(grant.agentId))} — ${escapeHtml(rt(`cap.${grant.permissionModeCap}`))}${grant.scopes.length ? ` · ${escapeHtml(grant.scopes.map(scopeLabel).join(", "))}` : ""}</li>`).join("")}</ul>`
-        : `<p class="settings-card-description">${escapeHtml(rt("pairingNoGrants"))}</p>`;
+        : `<div class="settings-inline-alert settings-alert" role="status">${escapeHtml(rt("pairingNeedsGrants"))}</div>`;
     return `
       <div class="peer-collaboration-pairing peer-collaboration-item" data-peer-pairing="${escapeAttr(item.id)}">
         <div class="settings-provider-section-head settings-card-header">
@@ -573,6 +571,7 @@ export function createPeerCollaborationSettingsController({
     const invitations = value.invitations.filter((item) => item.status !== "approved");
     const hostPairings = value.pairings.filter((item) => item.localRole === "host");
     const controllerPairings = value.pairings.filter((item) => item.localRole === "controller");
+    const sharingOffBlocks = !value.sharingEnabled && hostPairings.some((item) => item.status === "active");
     return `
       <div class="settings-live-page peer-collaboration-page" id="peerCollaborationPage">
         <section class="settings-hero-card settings-page-section settings-card peer-collaboration-hero">
@@ -597,6 +596,7 @@ export function createPeerCollaborationSettingsController({
                 <span class="remote-access-switch-track" aria-hidden="true"></span>
               </label>
             </div>
+            ${sharingOffBlocks ? `<div class="settings-inline-alert settings-alert" role="status">${escapeHtml(rt("sharingOffBlocksPeers"))}</div>` : ""}
             <dl class="peer-collaboration-meta">
               <div class="peer-collaboration-meta-row">
                 <dt>${escapeHtml(rt("identityFingerprint"))}</dt>
@@ -614,9 +614,10 @@ export function createPeerCollaborationSettingsController({
         </section>
         ${state?.peerCollaborationError ? `<div class="settings-inline-alert settings-alert" role="alert">${escapeHtml(state.peerCollaborationError)}</div>` : ""}
         ${value.available ? "" : `<div class="settings-inline-alert settings-alert" role="status">${escapeHtml(rt("unavailableNotice"))}</div>`}
-        <section class="settings-provider-section settings-page-section settings-card">
+        <section class="settings-provider-section settings-page-section settings-card" data-peer-lane="host">
           <div class="settings-provider-section-head settings-card-header">
             <div>
+              <p class="peer-collaboration-lane-kicker">${escapeHtml(rt("hostLaneKicker"))}</p>
               <div class="settings-provider-title settings-card-title">${escapeHtml(rt("inviteTitle"))}</div>
               <div class="settings-provider-meta settings-card-description" data-settings-help-copy>${escapeHtml(rt("inviteDescription"))}</div>
             </div>
@@ -632,7 +633,7 @@ export function createPeerCollaborationSettingsController({
           </form>
           ${renderCreatedInvitation()}
         </section>
-        <section class="settings-provider-section settings-page-section settings-card">
+        <section class="settings-provider-section settings-page-section settings-card" data-peer-lane="host">
           <div class="settings-provider-section-head settings-card-header">
             <div>
               <div class="settings-provider-title settings-card-title">${escapeHtml(rt("invitationsTitle"))}</div>
@@ -641,7 +642,7 @@ export function createPeerCollaborationSettingsController({
           </div>
           ${invitations.length ? `<div class="peer-collaboration-stack-list">${invitations.map(renderInvitation).join("")}</div>` : `<p class="settings-card-description peer-collaboration-empty">${escapeHtml(rt("invitationsEmpty"))}</p>`}
         </section>
-        <section class="settings-provider-section settings-page-section settings-card">
+        <section class="settings-provider-section settings-page-section settings-card" data-peer-lane="host">
           <div class="settings-provider-section-head settings-card-header">
             <div>
               <div class="settings-provider-title settings-card-title">${escapeHtml(rt("hostPairingsTitle"))}</div>
@@ -650,9 +651,10 @@ export function createPeerCollaborationSettingsController({
           </div>
           ${hostPairings.length ? `<div class="peer-collaboration-stack-list">${hostPairings.map(renderPairing).join("")}</div>` : `<p class="settings-card-description peer-collaboration-empty">${escapeHtml(rt("hostPairingsEmpty"))}</p>`}
         </section>
-        <section class="settings-provider-section settings-page-section settings-card">
+        <section class="settings-provider-section settings-page-section settings-card" data-peer-lane="controller">
           <div class="settings-provider-section-head settings-card-header">
             <div>
+              <p class="peer-collaboration-lane-kicker">${escapeHtml(rt("controllerLaneKicker"))}</p>
               <div class="settings-provider-title settings-card-title">${escapeHtml(rt("connectTitle"))}</div>
               <div class="settings-provider-meta settings-card-description" data-settings-help-copy>${escapeHtml(rt("connectDescription"))}</div>
             </div>
@@ -682,7 +684,7 @@ export function createPeerCollaborationSettingsController({
     draft.scopes = normalizePeerScopes(Array.from(scopes));
     const allowed = new Set(draft.scopes);
     draft.grants = draft.grants.map((grant) => ({ ...grant, scopes: grant.scopes.filter((value) => allowed.has(value)) }));
-    onChange?.(state.peerCollaboration);
+    syncEditorSubmit(kind, id);
   }
 
   function updateGrantScope(kind, id, index, scope, checked) {
@@ -700,20 +702,113 @@ export function createPeerCollaborationSettingsController({
     if (!option) return;
     const draft = draftFor(kind, id);
     if (draft.grants.some((grant) => grant.agentId === agentId)) return;
+    const cap = peerPermissionCaps.includes(draft.permissionModeCap) ? draft.permissionModeCap : "readOnly";
     draft.grants.push({
       projectId: option.projectId,
       agentId: option.agentId,
       scopes: normalizePeerScopes(draft.scopes),
-      permissionModeCap: "readOnly",
+      permissionModeCap: cap,
     });
-    onChange?.(state.peerCollaboration);
+  }
+
+  function setProjectGranted(kind, id, projectId, checked) {
+    const draft = draftFor(kind, id);
+    const agents = agentOptions.filter((item) => item.projectId === projectId);
+    if (!agents.length) return;
+    if (checked) {
+      const cap = peerPermissionCaps.includes(draft.permissionModeCap) ? draft.permissionModeCap : "readOnly";
+      const scopes = normalizePeerScopes(draft.scopes);
+      agents.forEach((option) => {
+        if (draft.grants.some((grant) => grant.agentId === option.agentId)) return;
+        draft.grants.push({
+          projectId: option.projectId,
+          agentId: option.agentId,
+          scopes: [...scopes],
+          permissionModeCap: cap,
+        });
+      });
+    } else {
+      draft.grants = draft.grants.filter((grant) => grant.projectId !== projectId);
+    }
+  }
+
+  function setDraftPermissionCap(kind, id, value) {
+    const draft = draftFor(kind, id);
+    const cap = peerPermissionCaps.includes(value) ? value : "readOnly";
+    draft.permissionModeCap = cap;
+    draft.grants = draft.grants.map((grant) => ({ ...grant, permissionModeCap: cap }));
   }
 
   function removeGrant(kind, id, index) {
     const draft = draftFor(kind, id);
     if (index < 0 || index >= draft.grants.length) return;
     draft.grants.splice(index, 1);
-    onChange?.(state.peerCollaboration);
+  }
+
+  function syncEditorSubmit(kind, id) {
+    const action = kind === "approval" ? "approve" : "save-auth";
+    const editor = document.querySelector?.(`[data-peer-editor="${kind}-${id}"]`);
+    const button = editor?.querySelector?.(`[data-peer-action="${action}"]`);
+    if (button) button.disabled = !draftFor(kind, id).scopes.length;
+  }
+
+  function syncProjectGrantSummary(picker) {
+    const summary = picker?.querySelector?.("[data-peer-project-picker-summary]");
+    if (!summary) return;
+    summary.textContent = rt("projectGrantSummary", { count: picker.querySelectorAll("[data-peer-project-grant]:checked").length });
+  }
+
+  function closeProjectPickers() {
+    document.querySelectorAll(".peer-collaboration-project-picker.is-open").forEach((picker) => {
+      picker.classList.remove("is-open");
+      picker.querySelector("[data-peer-project-picker-toggle]")?.setAttribute("aria-expanded", "false");
+    });
+    floatingMenu?.remove();
+    floatingMenu = null;
+  }
+
+  function openProjectPicker(picker) {
+    closeProjectPickers();
+    const toggle = picker.querySelector("[data-peer-project-picker-toggle]");
+    picker.classList.add("is-open");
+    toggle?.setAttribute("aria-expanded", "true");
+    const menu = document.createElement("div");
+    menu.id = "peerCollaborationProjectMenu";
+    menu.className = "composer-select-popover user-admin-project-menu";
+    menu.setAttribute("role", "listbox");
+    menu.setAttribute("aria-multiselectable", "true");
+    picker.querySelectorAll("[data-peer-project-grant]").forEach((input) => {
+      const option = document.createElement("button");
+      option.type = "button";
+      option.className = "composer-select-option";
+      option.setAttribute("role", "option");
+      option.setAttribute("aria-selected", input.checked ? "true" : "false");
+      const label = document.createElement("span");
+      label.textContent = input.dataset.peerProjectName || input.dataset.peerProjectGrant || "";
+      const check = document.createElement("span");
+      check.className = "composer-select-option-check";
+      check.setAttribute("aria-hidden", "true");
+      check.textContent = input.checked ? "✓" : "";
+      option.append(label, check);
+      option.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        input.checked = !input.checked;
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+        option.setAttribute("aria-selected", input.checked ? "true" : "false");
+        check.textContent = input.checked ? "✓" : "";
+      });
+      menu.appendChild(option);
+    });
+    document.body.appendChild(menu);
+    floatingMenu = menu;
+    const rect = toggle?.getBoundingClientRect?.();
+    if (!rect) return;
+    const viewportWidth = globalThis.innerWidth || document.documentElement.clientWidth || 0;
+    const width = Math.min(Math.max(rect.width, 260), Math.max(160, viewportWidth - 16));
+    menu.style.left = `${Math.min(Math.max(8, rect.left), Math.max(8, viewportWidth - width - 8))}px`;
+    menu.style.width = `${width}px`;
+    menu.style.top = `${rect.bottom + 6}px`;
   }
 
   async function runAction(button, action, id) {
@@ -787,6 +882,10 @@ export function createPeerCollaborationSettingsController({
   }
 
   function bind() {
+    pickerEvents?.abort();
+    closeProjectPickers();
+    pickerEvents = new AbortController();
+    const { signal } = pickerEvents;
     const root = document.getElementById("peerCollaborationPage");
     if (!root) {
       // The loading placeholder has no controls, so the first paint still has to
@@ -796,6 +895,15 @@ export function createPeerCollaborationSettingsController({
     }
     if (!state?.peerCollaboration && !state?.peerCollaborationLoading) void load().catch(() => {});
     root.addEventListener("click", async (event) => {
+      const toggle = event.target?.closest?.("[data-peer-project-picker-toggle]");
+      if (toggle && root.contains(toggle)) {
+        event.preventDefault();
+        const picker = toggle.closest("[data-peer-project-picker]");
+        if (!picker) return;
+        if (picker.classList.contains("is-open")) closeProjectPickers();
+        else openProjectPicker(picker);
+        return;
+      }
       const button = event.target?.closest?.("[data-peer-action]");
       if (!button || !root.contains(button)) return;
       const action = button.dataset.peerAction;
@@ -808,7 +916,7 @@ export function createPeerCollaborationSettingsController({
       } finally {
         setButtonBusy(button, false);
       }
-    });
+    }, { signal });
     root.addEventListener("change", (event) => {
       const target = event.target;
       if (!target?.dataset) return;
@@ -821,6 +929,15 @@ export function createPeerCollaborationSettingsController({
       }
       if (kind && id && target.dataset.peerGrantScope) {
         updateGrantScope(kind, id, Number(target.dataset.peerGrantIndex), target.dataset.peerGrantScope, Boolean(target.checked));
+        return;
+      }
+      if (kind && id && target.dataset.peerProjectGrant) {
+        setProjectGranted(kind, id, target.dataset.peerProjectGrant, Boolean(target.checked));
+        syncProjectGrantSummary(target.closest("[data-peer-project-picker]"));
+        return;
+      }
+      if (kind && id && target.dataset.peerGrantCapAll) {
+        setDraftPermissionCap(kind, id, target.value);
         return;
       }
       if (kind && id && target.dataset.peerGrantCap) {
@@ -840,7 +957,15 @@ export function createPeerCollaborationSettingsController({
         target.value = "";
         if (agentId) addGrant(kind, id, agentId);
       }
-    });
+    }, { signal });
+    document.addEventListener("pointerdown", (event) => {
+      const node = event.target instanceof Element ? event.target : event.target?.parentElement;
+      if (node?.closest?.(".peer-collaboration-project-picker, .user-admin-project-menu")) return;
+      closeProjectPickers();
+    }, { signal });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") closeProjectPickers();
+    }, { signal });
     document.getElementById("peerCollaborationSharing")?.addEventListener("change", async (event) => {
       const input = event.currentTarget;
       const enabled = Boolean(input.checked);
@@ -858,7 +983,7 @@ export function createPeerCollaborationSettingsController({
       } finally {
         input.disabled = false;
       }
-    });
+    }, { signal });
     document.getElementById("peerCollaborationInviteForm")?.addEventListener("submit", async (event) => {
       event.preventDefault();
       const button = event.currentTarget.querySelector("[data-peer-invite-submit]");
@@ -870,7 +995,7 @@ export function createPeerCollaborationSettingsController({
       } finally {
         setButtonBusy(button, false);
       }
-    });
+    }, { signal });
     document.getElementById("peerCollaborationConnectForm")?.addEventListener("submit", async (event) => {
       event.preventDefault();
       const button = event.currentTarget.querySelector("[data-peer-connect-submit]");
@@ -885,11 +1010,12 @@ export function createPeerCollaborationSettingsController({
       } finally {
         setButtonBusy(button, false);
       }
-    });
+    }, { signal });
   }
 
   return {
     addGrant,
+    setProjectGranted,
     approveInvitation,
     bind,
     connectPeer,
@@ -931,4 +1057,22 @@ export function collectAgentOptions(navigation = {}) {
     });
   });
   return options.slice(0, 500);
+}
+
+export function collectProjectGrantOptions(agents = []) {
+  const map = new Map();
+  (Array.isArray(agents) ? agents : []).forEach((option) => {
+    const projectId = textValue(option?.projectId);
+    const agentId = textValue(option?.agentId);
+    if (!projectId || !agentId) return;
+    if (!map.has(projectId)) {
+      map.set(projectId, {
+        projectId,
+        projectName: textValue(option.projectName, projectId),
+        agents: [],
+      });
+    }
+    map.get(projectId).agents.push(option);
+  });
+  return [...map.values()];
 }

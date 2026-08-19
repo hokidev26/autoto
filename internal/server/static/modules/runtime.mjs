@@ -8,6 +8,13 @@ export function onAPIAuthorizationFailure(listener) {
   return () => apiAuthorizationFailureListeners.delete(listener);
 }
 
+export function isAccountSessionAuthorizationFailure({ status, error } = {}) {
+  if (Number(status) !== 401) return false;
+  // Owner-facing peer proxies used to reuse HTTP 401 when the other Autoto
+  // revoked a pairing. That is not an Autoto account-session failure.
+  return String(error?.message || "").trim() !== "peer authentication failed";
+}
+
 function notifyAPIAuthorizationFailure(detail) {
   for (const listener of apiAuthorizationFailureListeners) {
     try {

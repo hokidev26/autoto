@@ -73,7 +73,7 @@ import { createPeerCollaborationWorkspaceController, parsePeerTargetId, peerWork
 import { createRemoteAccessSettingsController } from "./remote-access-settings.mjs";
 import { createSharedAPISettingsController } from "./shared-api-settings.mjs";
 import { applyServerSkillsLoadResult, createSkillsPhaseBController, hydrateServerSkillSummaries, isOptimisticSkillConflict, loadServerSkillsWithFallback, normalizeSkillContext } from "./skills-bootstrap.mjs";
-import { api, onAPIAuthorizationFailure, webSocketURL } from "./runtime.mjs";
+import { api, isAccountSessionAuthorizationFailure, onAPIAuthorizationFailure, webSocketURL } from "./runtime.mjs";
 import { firstSettingsItemForCategory, groupSettingsItemsByLegacyCategory, legacySettingsCategories, settingsCategoryByKey, settingsCategoryForItem } from "./settings-categories.mjs";
 import { settingsIconSVG, settingsItemByKey, settingsItems, settingsSections } from "./settings-data.mjs";
 import { createSettingsHelpController } from "./settings-help.mjs";
@@ -102,7 +102,7 @@ import { createBrandConfirm } from "./brand-confirm.mjs";
 import { createMessageContextMenu } from "./message-context-menu.mjs";
 import { createOverviewNavHelpers } from "./overview-nav-helpers.mjs";
 import { installPullToRefresh, isPullToRefreshSupported } from "./pull-to-refresh.mjs";
-import { createWorkbenchSidebarRender, primaryWorkbenchLayout } from "./workbench-sidebar-render.mjs";
+import { createWorkbenchSidebarRender, primaryWorkbenchLayout, resolvedPrimaryWorkbench, appearanceAllowsPrimaryMode } from "./workbench-sidebar-render.mjs";
 import { createWorkspaceContextHelpers } from "./workspace-context-helpers.mjs";
 import { createWorkspaceExplorerController } from "./workspace-explorer.mjs";
 import { runPreviewScreenshot } from "./workspace-screenshot.mjs";
@@ -809,7 +809,7 @@ const {
 } = terminal;
 
 onAPIAuthorizationFailure(({ status, path, error }) => {
-  if (status === 401 && state.authStatus?.hasUsers) {
+  if (isAccountSessionAuthorizationFailure({ status, error }) && state.authStatus?.hasUsers) {
     state.account = null;
     if (!accountSession?.overlayIsOpen?.()) {
       accountSession?.applyGuestShell?.();
@@ -1551,6 +1551,7 @@ settingsPreferences = createSettingsPreferencesController({
   updatePromptHistoryHint,
   updateSlashCommandPalette,
   updateGlobalThemeToggle,
+  onAppearanceNavVisibilityChange: syncHiddenRailWorkbench,
 });
 
 const mcpRegistryUI = createMCPRegistryUIController({
@@ -2103,6 +2104,25 @@ export function conversationDetailMetrics() {
 function renderConversationDetails() {
   const body = $("conversationDetailsBody");
   if (!body) return;
+  const peer = peerCollaborationWorkspace?.isSelected() ? peerCollaborationWorkspace.selectedSummary?.() : null;
+  if (peer) {
+    const rows = [
+      [sx("app.currentModel"), peer.model || "—", true],
+      [t("chat.reasoningEffort"), peer.reasoningEffort || "—"],
+      [sx("app.permissionMode"), peer.permissionMode || peer.permissionModeCap || "—"],
+      [t("peerCollaboration.navHostMeta"), peer.hostName || "—"],
+    ];
+    setHTMLIfChanged(body, `
+      <section class="conversation-detail-hero"><div><h2>${escapeHtml(peer.title || sx("app.noConversationSelected"))}</h2><p>${escapeHtml(peer.hostName || "")}</p></div><span class="conversation-detail-status">${escapeHtml(t("peerCollaboration.composerStatus"))}</span></section>
+      <section class="conversation-detail-table">${rows.map(([label, value, copy]) => `<div class="conversation-detail-row"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong>${copy && value !== "—" ? `<button type="button" data-copy-detail="${escapeAttr(value)}">${escapeHtml(t("workspace.chat.copy"))}</button>` : ""}</div>`).join("")}</section>
+      <p class="settings-card-description">${escapeHtml(t("peerCollaboration.workspaceOnHost"))}</p>
+    `);
+    body.querySelectorAll("[data-copy-detail]:not([data-copy-bound])").forEach((node) => {
+      node.dataset.copyBound = "1";
+      node.addEventListener("click", () => copyText(node.dataset.copyDetail));
+    });
+    return;
+  }
   const metrics = conversationDetailMetrics();
   const rows = [
     [sx("app.sessionId"), state.agent?.id || "—", true],
@@ -2151,7 +2171,7 @@ function renderConversationDetails() {
 }
 
 function openConversationDetails() {
-  if (!state.agent) showToast(am("selectConversationFirst"), "warn");
+  if (!state.agent && !peerCollaborationWorkspace?.isSelected()) showToast(am("selectConversationFirst"), "warn");
   backgroundTasks.closeTray("details-open");
   closeWorkspace();
   toggleTerminal(true);
@@ -2278,7 +2298,7 @@ function syncNavigationCreateButton(button) {
 }
 
 function applyPrimaryWorkbench(value) {
-  const mode = normalizedPrimaryWorkbench(value);
+  const mode = resolvedPrimaryWorkbench(value, currentAppearancePreferences());
   const previousMode = state.activeWorkbench;
   state.primaryModePreference = mode;
   state.activeWorkbench = mode;
@@ -2290,6 +2310,13 @@ function applyPrimaryWorkbench(value) {
     $("projectSearchWrap")?.classList.add("hidden");
     $("projectSearchToggleBtn")?.classList.remove("active");
     if (mode === "schedules" && scheduleWorkspace.getState().query) scheduleWorkspace.setQuery("");
+    if (previousMode === "remote" && mode !== "remote" && peerCollaborationWorkspace?.isSelected()) {
+      peerCollaborationWorkspace.clearSelection();
+      applyPeerComposerChrome();
+    }
+    if (mode === "remote") {
+      void peerCollaborationWorkspace?.refresh?.().catch(() => {});
+    }
   }
   for (const [id, hidden] of Object.entries(layout.hidden)) $(id)?.classList.toggle("hidden", hidden);
   for (const [name, active] of Object.entries(layout.bodyClasses)) document.body.classList.toggle(name, active);
@@ -2312,6 +2339,39 @@ function applyPrimaryWorkbench(value) {
   syncThemePageContext();
   if (workbench && taskWorkspace.getState().scope === "agent" && state.agent?.id) specBoard.load().catch(showError);
   return mode;
+}
+
+function syncHiddenRailWorkbench(prefs = currentAppearancePreferences()) {
+  const mode = state.activeWorkbench;
+  if (mode === "schedules" && prefs.showSchedulesNav === false) {
+    switchPrimaryWorkbench("conversation");
+    if (!state.agent) openDefaultConversationTarget({ preserveMessageState: true }).catch(showError);
+    return;
+  }
+  if (mode === "remote" && prefs.showRemoteNav === false) {
+    switchPrimaryWorkbench("conversation");
+    if (!state.agent) openDefaultConversationTarget({ preserveMessageState: true }).catch(showError);
+  }
+}
+
+function renderRemoteEmptyTranscript() {
+  const el = $("messages");
+  if (!el) return;
+  el.classList.add("empty");
+  el.removeAttribute("aria-busy");
+  delete el.dataset.initialChatState;
+  setHTMLIfChanged(el, `<div class="empty-workspace-card"><div class="empty-workspace-title">${escapeHtml(t("peerCollaboration.selectRemoteConversation"))}</div></div>`);
+  renderConversationHeaderIdentity();
+}
+
+async function refreshCurrentPrimaryMode() {
+  if (state.activeWorkbench === "remote") {
+    await peerCollaborationWorkspace?.refresh?.({ force: true });
+    renderProjects();
+    if (peerCollaborationWorkspace?.isSelected()) renderPeerConversation();
+    return;
+  }
+  await refreshPrimaryMode();
 }
 
 function switchPrimaryWorkbench(value) {
@@ -2639,7 +2699,17 @@ function activateGlobalRailTarget(target) {
     }
     return;
   }
+  if (key === "remote") {
+    if (!appearanceAllowsPrimaryMode("remote", currentAppearancePreferences())) return;
+    switchPrimaryWorkbench("remote");
+    if (!peerCollaborationWorkspace?.isSelected()) {
+      if (state.agent || state.project) beginNavigationSelection(null, { selectionKind: "conversation" });
+      renderRemoteEmptyTranscript();
+    }
+    return;
+  }
   if (key === "schedules") {
+    if (!appearanceAllowsPrimaryMode("schedules", currentAppearancePreferences())) return;
     switchPrimaryWorkbench("schedules");
     return;
   }
@@ -2829,11 +2899,14 @@ function syncProjectOperationContext() {
   const wasActive = body?.classList.contains("project-operation-context") || false;
   body?.classList.toggle("project-operation-context", active);
   if (body) body.dataset.navigationContext = active ? "project" : "conversation";
+  const peerSelected = Boolean(peerCollaborationWorkspace?.isSelected());
   (document.querySelectorAll?.("[data-project-context-only]") || []).forEach((node) => {
-    node.setAttribute("aria-hidden", active ? "false" : "true");
+    const peerChrome = peerSelected && Boolean(node.closest?.("#conversationToolGroup, .composer-permission-field"));
+    node.setAttribute("aria-hidden", (active || peerChrome) ? "false" : "true");
   });
   const permissionMode = $("permissionMode");
-  if (permissionMode) permissionMode.disabled = !active;
+  if (permissionMode) permissionMode.disabled = !active && !peerSelected;
+  if (peerSelected) paintPeerWorkspaceTools(true);
   if (wasActive && !active) {
     toggleTerminal(true);
     closeWorkspace();
@@ -2953,7 +3026,11 @@ function syncMobilePageTitle() {
     setTextIfChanged(node, selected?.name || t("shell.nav.schedules"));
     return;
   }
-  setTextIfChanged(node, peerCollaborationWorkspace?.selectedSummary?.()?.title || ((!state.project && !state.agent) ? t("shell.nav.conversation") : titleForSurface("conversation")));
+  if (state.activeWorkbench === "remote") {
+    setTextIfChanged(node, peerCollaborationWorkspace?.selectedSummary?.()?.title || t("shell.nav.remote"));
+    return;
+  }
+  setTextIfChanged(node, (!state.project && !state.agent) ? t("shell.nav.conversation") : titleForSurface("conversation"));
 }
 
 function renderConversationHeaderIdentityNow() {
@@ -3580,6 +3657,7 @@ function renderProjects() {
   if (!el) return;
   const scheduleContext = state.activeWorkbench === "schedules";
   const taskContext = state.activeWorkbench === "workbench";
+  const remoteContext = state.activeWorkbench === "remote";
   // Every sidebar width shows the tree. The compact/expanded split used to
   // decide this, which meant collapsing the sidebar revealed more structure than
   // widening it: forks render only in "all", so at normal width a forked
@@ -3591,6 +3669,22 @@ function renderProjects() {
   if (scheduleContext) {
     el.innerHTML = scheduleWorkspace.renderNavigation(scheduleWorkspaceViewOptions());
     scheduleWorkspace.bind(el, scheduleWorkspaceViewOptions());
+    renderRecentSidebarConversations();
+    return;
+  }
+  if (remoteContext) {
+    el.innerHTML = peerCollaborationWorkspace?.renderNavigationHTML?.({ query: state.projectQuery })
+      || `<div class="peer-collaboration-nav" data-peer-collaboration-nav><p class="peer-collaboration-nav-empty">${escapeHtml(t("peerCollaboration.navNoPairings"))}</p></div>`;
+    el.querySelectorAll("[data-peer-target]").forEach((node) => {
+      bindNavigationActivation(node, () => selectPeerConversation(node.dataset.peerTarget).catch(showError));
+    });
+    el.querySelectorAll("[data-peer-snapshot-retry]").forEach((node) => {
+      node.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        peerCollaborationWorkspace?.refresh?.({ force: true })?.catch(showError);
+      });
+    });
     renderRecentSidebarConversations();
     return;
   }
@@ -3614,7 +3708,7 @@ function renderProjects() {
     collapsedNodes: getCollapsedNavNodes(),
     projectOrder: getProjectOrder(),
     seenMap: readSeenMap(),
-  }) + (taskContext ? "" : peerCollaborationWorkspace?.renderNavigationHTML?.() || "");
+  });
   bindConversationDrag(el);
   bindProjectDrag(el);
   el.querySelectorAll("[data-project-id]").forEach((node) => {
@@ -3625,6 +3719,13 @@ function renderProjects() {
   });
   el.querySelectorAll("[data-peer-target]").forEach((node) => {
     bindNavigationActivation(node, () => selectPeerConversation(node.dataset.peerTarget).catch(showError));
+  });
+  el.querySelectorAll("[data-peer-snapshot-retry]").forEach((node) => {
+    node.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      peerCollaborationWorkspace?.refresh?.({ force: true })?.catch(showError);
+    });
   });
   bindNavigationMenuTriggers();
   el.querySelectorAll("[data-navigation-disclosure]").forEach((node) => {
@@ -3816,7 +3917,7 @@ function beginNavigationSelection(project, options = {}) {
 
 async function selectProject(id, options = {}) {
   const leavingOverview = state.overviewActive && options.preserveOverview !== true;
-  if (leavingOverview) switchPrimaryWorkbench("conversation");
+  if (leavingOverview || state.activeWorkbench === "remote") switchPrimaryWorkbench("conversation");
   const project = state.projects.find((item) => item.id === id) || null;
   // Clicking the project that is already open, while already looking at it,
   // asks for nothing that is not on screen. It used to re-fetch the worklines
@@ -3927,17 +4028,6 @@ async function selectProject(id, options = {}) {
 // actually for: put the reader back on it. It repaints the navigation so the row
 // reads as current, scrolls it into view when the click came from somewhere else,
 // and returns focus to the composer. No requests, no transcript rebuild.
-function composerSelectValueNode(selectId) {
-  return document.querySelector(`[data-composer-select="${selectId}"]`)?.querySelector(".composer-select-value");
-}
-
-function composerOptionLabel(selectId, value, fallback = "") {
-  const select = $(selectId);
-  const match = [...(select?.options || [])].find((option) => option.value === value);
-  const label = match?.textContent?.trim();
-  return label || fallback || value || "—";
-}
-
 function peerModelDisplayName(model) {
   const text = String(model || "").trim();
   if (!text) return "—";
@@ -3945,33 +4035,111 @@ function peerModelDisplayName(model) {
   return index >= 0 ? text.slice(index + 1) : text;
 }
 
+function ensureComposerSelectValue(selectId, value, label = "") {
+  const select = $(selectId);
+  const text = String(value || "").trim();
+  if (!select || !text) return;
+  if (![...select.options].some((option) => option.value === text)) {
+    const option = document.createElement("option");
+    option.value = text;
+    option.textContent = label || text;
+    select.appendChild(option);
+  }
+  select.value = text;
+}
+
+function paintPeerWorkspaceTools(selected) {
+  const hostOnly = ["workspaceExplorerBtn", "gitWorkflowBtn", "specBoardBtn", "backgroundTasksBtn", "toggleTerminalBtn", "workspacePreviewBtn"];
+  const title = t("peerCollaboration.workspaceOnHost");
+  hostOnly.forEach((id) => {
+    const button = $(id);
+    if (!button) return;
+    if (selected) {
+      button.disabled = false;
+      button.setAttribute("aria-hidden", "false");
+      button.dataset.peerHostTool = "1";
+      button.title = title;
+      return;
+    }
+    if (button.dataset.peerHostTool) delete button.dataset.peerHostTool;
+    if (button.title === title) button.title = button.getAttribute("aria-label") || button.dataset.defaultTitle || "";
+  });
+}
+
+function peerReasoningEffortLabel(value) {
+  return {
+    auto: t("modelProvider.automatic"),
+    low: t("modelProvider.low"),
+    medium: t("modelProvider.medium"),
+    high: t("modelProvider.high"),
+    xhigh: t("staticExtra.chat.ultraHighEffort"),
+    max: t("staticExtra.chat.maxEffort"),
+    ultra: t("staticExtra.chat.ultraEffort"),
+  }[value] || t("modelProvider.automatic");
+}
+
+function paintPeerReasoningEffort(effort, canSend) {
+  const select = $("reasoningEffort");
+  if (!select) return;
+  const requested = String(effort || "auto").trim().toLowerCase() || "auto";
+  if (select.options.length <= 1) {
+    const values = ["xhigh", "max", "ultra"].includes(requested)
+      ? ["auto", "low", "medium", "high", "xhigh", "max", "ultra"]
+      : ["auto", "low", "medium", "high"];
+    select.innerHTML = values.map((value) => `<option value="${escapeAttr(value)}">${escapeHtml(peerReasoningEffortLabel(value))}</option>`).join("");
+    select.value = values.includes(requested) ? requested : "auto";
+  }
+  select.disabled = !canSend;
+  const trigger = select.parentElement?.querySelector?.('[data-composer-select="reasoningEffort"]');
+  if (trigger) {
+    trigger.disabled = !canSend;
+    trigger.classList.toggle("is-unsupported", false);
+    if (canSend) trigger.removeAttribute("title");
+  }
+  select.closest?.(".reasoning-effort-pill")?.classList.remove("reasoning-effort-unsupported", "reasoning-effort-saving");
+  const display = $("reasoningEffortDisplay");
+  if (display) {
+    setTextIfChanged(display, peerReasoningEffortLabel(select.value));
+    (display.dataset ||= {}).mobileLabel = { auto: "A", low: "L", medium: "M", high: "H", xhigh: "X", max: "X", ultra: "U" }[select.value] || "A";
+  }
+}
+
 function paintPeerComposerSelects(summary) {
-  const modelNode = composerSelectValueNode("modelSelect");
-  const effortNode = composerSelectValueNode("reasoningEffort");
-  const permissionNode = document.querySelector(".permission-toolbar-pill .mode-display");
-  const modelName = peerModelDisplayName(summary?.model);
+  const canSend = Boolean(peerCollaborationWorkspace?.canSend());
+  const model = String(summary?.model || "").trim();
   const effort = String(summary?.reasoningEffort || "auto").trim() || "auto";
-  const permission = String(summary?.permissionModeCap || "readOnly").trim() || "readOnly";
-  if (modelNode) {
-    modelNode.textContent = modelName;
-    modelNode.title = String(summary?.model || modelName);
-    modelNode.dataset.mobileLabel = modelName.slice(0, 8);
+  const cap = String(summary?.permissionModeCap || "readOnly").trim() || "readOnly";
+  const permission = String(summary?.permissionMode || cap).trim() || cap;
+  ensureComposerSelectValue("modelSelect", model, peerModelDisplayName(model));
+  refreshReasoningEffortControl({ modelValue: model, requestedValue: effort });
+  paintPeerReasoningEffort(effort, canSend);
+  ensureComposerSelectValue("reasoningEffort", effort, peerReasoningEffortLabel(effort));
+  const permissionSelect = $("permissionMode");
+  if (permissionSelect) {
+    permissionSelect.disabled = !canSend;
+    [...permissionSelect.options].forEach((option) => {
+      if (option.value === "bypassPermissions") option.disabled = true;
+      else if (cap === "readOnly") option.disabled = option.value !== "readOnly";
+      else option.disabled = false;
+    });
+    if (![...permissionSelect.options].some((option) => option.value === permission && !option.disabled)) {
+      permissionSelect.value = cap === "readOnly" ? "readOnly" : permissionSelect.value || cap;
+    } else {
+      permissionSelect.value = permission;
+    }
   }
-  if (effortNode) {
-    effortNode.textContent = composerOptionLabel("reasoningEffort", effort, effort);
-  }
-  if (permissionNode) {
-    permissionNode.textContent = composerOptionLabel("permissionMode", permission, permissionLabel(permission));
-    permissionNode.dataset.mobileLabel = permissionMobileLabel(permission);
-  }
+  updatePermissionModeDisplay();
   const permissionField = document.querySelector(".composer-permission-field");
   if (permissionField) permissionField.setAttribute("aria-hidden", "false");
   document.querySelectorAll("[data-composer-select]").forEach((trigger) => {
-    trigger.setAttribute("aria-disabled", "true");
+    if (canSend) trigger.removeAttribute("aria-disabled");
+    else trigger.setAttribute("aria-disabled", "true");
   });
 }
 
 function restoreComposerSelectDisplays() {
+  const permissionSelect = $("permissionMode");
+  if (permissionSelect && !projectOperationContextActive()) permissionSelect.disabled = true;
   document.querySelectorAll("[data-composer-select]").forEach((trigger) => {
     trigger.removeAttribute("aria-disabled");
     const select = $(trigger.dataset.composerSelect);
@@ -3987,12 +4155,16 @@ function applyPeerComposerChrome() {
   const canSend = Boolean(peerCollaborationWorkspace?.canSend());
   document.body.classList.toggle("peer-conversation", selected);
   document.body.classList.toggle("peer-conversation-readonly", selected && !canSend);
+  paintPeerWorkspaceTools(selected);
+  const headerTask = $("headerTaskSummaryBtn");
+  if (headerTask && selected) headerTask.disabled = false;
   const input = $("messageText");
   if (!input) return;
   input.disabled = selected && !canSend;
   if (selected) {
     input.placeholder = t(canSend ? "chat.messagePlaceholder" : "peerCollaboration.observeOnlyPlaceholder");
     paintPeerComposerSelects(peerCollaborationWorkspace?.selectedSummary?.() || null);
+    backgroundTasks.render();
     return;
   }
   restoreComposerSelectDisplays();
@@ -4022,7 +4194,8 @@ function renderPeerConversation({ scroll = false } = {}) {
 async function selectPeerConversation(targetId) {
   const parsed = parsePeerTargetId(targetId);
   if (!parsed) return;
-  if (state.overviewActive || state.activeWorkbench !== "conversation") switchPrimaryWorkbench("conversation");
+  if (!appearanceAllowsPrimaryMode("remote", currentAppearancePreferences())) return;
+  if (state.overviewActive || state.activeWorkbench !== "remote") switchPrimaryWorkbench("remote");
   if (peerCollaborationWorkspace?.selectedTargetId() === parsed.targetId && $("messages")?.querySelector?.(".peer-collaboration-transcript-banner")) {
     renderProjects();
     $("messageText")?.focus?.({ preventScroll: true });
@@ -4061,7 +4234,7 @@ function focusOpenConversation(agentId) {
 }
 
 async function selectNavigationConversation(target, options = {}) {
-  if (state.overviewActive && options.preserveOverview !== true) switchPrimaryWorkbench("conversation");
+  if ((state.overviewActive || state.activeWorkbench === "remote") && options.preserveOverview !== true) switchPrimaryWorkbench("conversation");
   const supplied = target && typeof target === "object" ? target : null;
   const parsed = typeof target === "string" ? parseNavigationTargetId(target) : parseNavigationTargetId(target?.targetId || "");
   const navigationConversation = supplied?.agentId
@@ -4435,7 +4608,35 @@ async function persistAgentSettingsPass(snapshot) {
   }
 }
 
+async function persistPeerComposerSettings(fields = {}) {
+  if (!peerCollaborationWorkspace?.isSelected()) return null;
+  if (!peerCollaborationWorkspace.canSend()) {
+    showToast(t("peerCollaboration.observeOnlyToast"), "warn");
+    return null;
+  }
+  try {
+    await peerCollaborationWorkspace.updateRuntime(fields);
+    paintPeerComposerSelects(peerCollaborationWorkspace.selectedSummary?.() || null);
+    return true;
+  } catch (err) {
+    const message = String(err?.message || err);
+    if (/does not support remote agent runtime|peer protocol validation failed/.test(message)) {
+      showToast(t("peerCollaboration.runtimeUnsupported"), "warn");
+    } else {
+      showError(err);
+    }
+    paintPeerComposerSelects(peerCollaborationWorkspace.selectedSummary?.() || null);
+    return null;
+  }
+}
+
 function saveAgentSettings() {
+  if (peerCollaborationWorkspace?.isSelected()) {
+    return persistPeerComposerSettings({
+      model: String($("modelSelect")?.value || "").trim(),
+      permissionMode: String($("permissionMode")?.value || "").trim(),
+    });
+  }
   state.agentSaveSnapshot = captureAgentSettingsSnapshot();
   state.agentSavePending = true;
   if (state.agentSavePromise) return state.agentSavePromise;
@@ -4608,7 +4809,7 @@ $("globalThemeToggleBtn")?.addEventListener("click", () => {
 $("mobileSidebarThemeBtn")?.addEventListener("click", () => {
   toggleAppearanceColorScheme();
 });
-$("refreshBtn").addEventListener("click", () => refreshPrimaryMode().catch(showError));
+$("refreshBtn").addEventListener("click", () => refreshCurrentPrimaryMode().catch(showError));
 document.querySelectorAll("[data-create-navigation-item]").forEach((button) => {
   button.addEventListener("click", () => createNavigationItem(button).catch(showError));
 });
@@ -4616,6 +4817,14 @@ $("mobileNewScheduleBtn")?.addEventListener("click", startScheduleCreation);
 $("mobileScheduleModeBtn")?.addEventListener("click", () => {
   closeMobileSidebar();
   switchPrimaryWorkbench(state.activeWorkbench === "schedules" ? "conversation" : "schedules");
+});
+$("mobileRemoteModeBtn")?.addEventListener("click", () => {
+  closeMobileSidebar();
+  if (state.activeWorkbench === "remote") {
+    activateGlobalRailTarget("conversation");
+    return;
+  }
+  activateGlobalRailTarget("remote");
 });
 $("newTaskBtn")?.addEventListener("click", () => focusTaskCreation().catch(showError));
 $("mobilePageTitle")?.addEventListener("click", () => {
@@ -4958,17 +5167,38 @@ $("modelSelect").addEventListener("change", () => {
   updateModelConfiguredState();
   refreshReasoningEffortControl({ modelValue: $("modelSelect").value });
   refreshFastModeControl({ modelValue: $("modelSelect").value });
+  if (peerCollaborationWorkspace?.isSelected()) {
+    paintPeerReasoningEffort($("reasoningEffort")?.value, peerCollaborationWorkspace.canSend());
+  }
   saveAgentSettings().catch(showError);
 });
 $("reasoningEffort")?.addEventListener("change", (event) => {
   refreshReasoningEffortControl({ requestedValue: event.target.value });
+  if (peerCollaborationWorkspace?.isSelected()) {
+    paintPeerReasoningEffort(event.target.value, peerCollaborationWorkspace.canSend());
+    persistPeerComposerSettings({ reasoningEffort: event.target.value }).catch(showError);
+    return;
+  }
   saveReasoningEffort(event.target.value).catch(showError);
 });
 $("permissionMode").addEventListener("change", () => {
+  if (peerCollaborationWorkspace?.isSelected()) {
+    updatePermissionModeDisplay();
+    persistPeerComposerSettings({ permissionMode: $("permissionMode").value }).catch(showError);
+    return;
+  }
   if (!projectOperationContextActive()) return;
   updatePermissionModeDisplay();
   saveAgentSettings().catch(showError);
 });
+$("conversationToolGroup")?.addEventListener("click", (event) => {
+  if (!peerCollaborationWorkspace?.isSelected()) return;
+  const button = event.target?.closest?.("[data-peer-host-tool]");
+  if (!button || !$("conversationToolGroup")?.contains(button)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  showToast(t("peerCollaboration.workspaceOnHost"), "info");
+}, true);
 $("toggleTerminalBtn").addEventListener("click", () => toggleTerminalDock());
 $("collapseTerminalBtn").addEventListener("click", () => toggleTerminalDock(true));
 $("expandTerminalBtn").addEventListener("click", () => toggleTerminalDock(false));

@@ -22,7 +22,7 @@
       .boot-transition { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; background: #f6f7fb; opacity: 0; visibility: hidden; pointer-events: none; }
       html[data-ui-locale-pending="true"] .boot-transition { opacity: 1; visibility: visible; pointer-events: auto; }
     </style>
-    <link rel="stylesheet" href="/ui/styles.css?c=composer-ui" />
+    <link rel="stylesheet" href="/ui/styles.css?c=remote-rail" />
     <link rel="stylesheet" href="/ui/theme-runtime.css?c=peer-gap" />
     <link rel="modulepreload" href="/ui/modules/error-boundary.mjs" />
     <link rel="modulepreload" href="/ui/modules/i18n.mjs" />
@@ -78,6 +78,9 @@
                list reads as a child of the "conversation" entry above. Empty in
                the column and icon layouts. -->
           <div id="railConversationDock" class="global-rail-dock" hidden></div>
+          <button class="global-rail-button" type="button" data-global-rail-target="remote" aria-pressed="false" title="远端协作" data-i18n-title="shell.nav.remote">
+            <span class="global-rail-icon theme-icon-slot" data-theme-icon-slot="rail-remote" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"></circle><path d="M3.8 12h16.4M12 3.5c2.2 2.3 3.3 5.1 3.3 8.5S14.2 18.2 12 20.5M12 3.5C9.8 5.8 8.7 8.6 8.7 12s1.1 6.2 3.3 8.5"></path></svg></span><span class="global-rail-label" data-i18n="shell.nav.remote">远端协作</span>
+          </button>
           <button class="global-rail-button" type="button" data-global-rail-target="schedules" aria-pressed="false" title="排程" data-i18n-title="shell.nav.schedules">
             <span class="global-rail-icon theme-icon-slot" data-theme-icon-slot="rail-schedules" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="2.5"></rect><path d="M8 3v4M16 3v4M4 9h16M8 13h3M8 16h6"></path></svg></span><span class="global-rail-label" data-i18n="shell.nav.schedules">排程</span>
           </button>
@@ -155,6 +158,7 @@
              poller and left empty until the first reading arrives. -->
         <div id="mobileSidebarMetrics" class="mobile-sidebar-metrics" role="group" aria-label="系统资源" data-i18n-aria-label="shell.systemResources" aria-live="polite"></div>
         <div class="mobile-sidebar-quick-actions" role="group" aria-label="移动端设置操作" data-i18n-aria-label="shell.mobileSettingsActions">
+          <button id="mobileRemoteModeBtn" class="mobile-sidebar-action mobile-drawer-schedule-btn" type="button" aria-label="远端协作" data-i18n-aria-label="shell.nav.remote"><span class="mobile-sidebar-action-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"></circle><path d="M3.8 12h16.4M12 3.5c2.2 2.3 3.3 5.1 3.3 8.5S14.2 18.2 12 20.5M12 3.5C9.8 5.8 8.7 8.6 8.7 12s1.1 6.2 3.3 8.5"></path></svg></span><span data-i18n-label data-i18n="shell.nav.remote">远端协作</span></button>
           <button id="mobileScheduleModeBtn" class="mobile-sidebar-action mobile-drawer-schedule-btn" type="button" aria-label="排程" data-i18n-aria-label="shell.nav.schedules"><span class="mobile-sidebar-action-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="2.5"></rect><path d="M8 3v4M16 3v4M4 9h16M8 13h3M8 16h6"></path></svg></span><span data-i18n-label data-i18n="shell.nav.schedules">排程</span></button>
           <button id="mobileSidebarThemeBtn" class="mobile-sidebar-action" type="button" aria-label="主题" data-i18n-aria-label="shell.toggleTheme" aria-pressed="false"><span id="mobileSidebarThemeIcon" class="mobile-sidebar-action-icon theme-toggle-icon" aria-hidden="true"></span><span data-i18n-label data-i18n="shell.toggleTheme">主题</span></button>
           <button id="mobileSidebarSettingsBtn" class="mobile-sidebar-action" type="button" aria-label="打开设置" data-i18n-aria-label="settings.open"><span class="mobile-sidebar-action-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19 13.5v-3l-2-.7a7 7 0 0 0-.7-1.7l.9-1.9-2.1-2.1-1.9.9a7 7 0 0 0-1.7-.7L10.5 2h-3l-.7 2a7 7 0 0 0-1.7.7l-1.9-.9-2.1 2.1.9 1.9a7 7 0 0 0-.7 1.7l-2 .7v3l2 .7a7 7 0 0 0 .7 1.7l-.9 1.9 2.1 2.1 1.9-.9a7 7 0 0 0 1.7.7l.7 2h3l.7-2a7 7 0 0 0 1.7-.7l1.9.9 2.1-2.1-.9-1.9a7 7 0 0 0 .7-1.7z" transform="translate(1.5 0)"></path></svg></span><span data-i18n="common.settings">设置</span></button>

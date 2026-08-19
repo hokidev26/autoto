@@ -77,6 +77,7 @@ export function createSettingsPreferencesController({
   updatePromptHistoryHint,
   updateSlashCommandPalette,
   updateGlobalThemeToggle,
+  onAppearanceNavVisibilityChange,
 } = {}) {
   const accountPreferenceStorageKeySet = new Set(accountPreferenceStorageKeys);
 
@@ -649,6 +650,8 @@ export function createSettingsPreferencesController({
       terminalDefaultOpen: value.terminalDefaultOpen !== undefined ? Boolean(value.terminalDefaultOpen) : defaultAppearancePrefs.terminalDefaultOpen,
       showEventLog: value.showEventLog !== undefined ? Boolean(value.showEventLog) : defaultAppearancePrefs.showEventLog,
       showThroughput: value.showThroughput !== undefined ? Boolean(value.showThroughput) : defaultAppearancePrefs.showThroughput,
+      showSchedulesNav: value.showSchedulesNav !== undefined ? Boolean(value.showSchedulesNav) : defaultAppearancePrefs.showSchedulesNav,
+      showRemoteNav: value.showRemoteNav !== undefined ? Boolean(value.showRemoteNav) : defaultAppearancePrefs.showRemoteNav,
     };
   }
 
@@ -687,6 +690,9 @@ export function createSettingsPreferencesController({
     // already produced, so toggling this must not depend on re-rendering every
     // message that is currently on screen.
     document.body.classList.toggle("show-throughput", prefs.showThroughput === true);
+    document.body.classList.toggle("hide-schedules-nav", prefs.showSchedulesNav === false);
+    document.body.classList.toggle("hide-remote-nav", prefs.showRemoteNav === false);
+    onAppearanceNavVisibilityChange?.(prefs);
     const themeResult = applyThemePreference?.(prefs);
     themeResult?.catch?.(() => {});
     const backgroundResult = applyBackgroundPreference?.(prefs);
@@ -705,7 +711,7 @@ export function createSettingsPreferencesController({
       prefs.themeRef = { kind: "preset", id: preset };
     } else if (field === "themeRef") {
       prefs.themeRef = normalizeAppearanceThemeRef(value, prefs.themePreset);
-    } else if (field === "terminalDefaultOpen" || field === "showEventLog" || field === "showThroughput") {
+    } else if (field === "terminalDefaultOpen" || field === "showEventLog" || field === "showThroughput" || field === "showSchedulesNav" || field === "showRemoteNav") {
       prefs[field] = value === true || value === "true";
     } else {
       prefs[field] = value;
