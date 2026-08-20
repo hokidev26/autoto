@@ -15,6 +15,7 @@ All notable changes to Autoto are tracked here. The project is still an experime
 
 ### Changed
 
+- Settings → Remote access now shows the named tunnel hostname under a labeled current-address row, including while the tunnel is idle. The live address stays a link with QR; the idle address is copyable but not presented as reachable until start. Remote collaboration still uses the live public URL for invitations.
 - Local accounts now have four roles. Existing collaborators (`role=user`) keep today's powers as **operators**. A new **collaborator** role can only work in granted projects, cannot create projects, and cannot open host settings. Administrators can see every project.
 - Signing out now shows a dedicated login screen instead of a translucent overlay on top of the last conversation.
 - The account sign-in screen matches the remote access unlock page: smile mark, letterspaced AUTOTO, yellow bouncing status, large heading, and inset fields. It no longer uses a giant watermark face.

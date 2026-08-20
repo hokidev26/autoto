@@ -69,8 +69,33 @@ func TestNamedTunnelReportsConfiguredHostnameOnRegistration(t *testing.T) {
 	if !snapshot.NamedConfigured {
 		t.Fatal("expected namedConfigured to be true")
 	}
+	if snapshot.NamedHostname != "autoto.example.com" {
+		t.Fatalf("expected configured hostname, got %q", snapshot.NamedHostname)
+	}
 	if _, err := manager.StopTunnel(context.Background()); err != nil {
 		t.Fatalf("stop named tunnel: %v", err)
+	}
+}
+
+// The hostname is configuration, not a secret, and settings needs it while the
+// tunnel is idle so the card can show the address a start will publish.
+func TestNamedTunnelSnapshotReportsHostnameBeforeStart(t *testing.T) {
+	manager := newNamedTunnelManager(t, config.NamedTunnelConfig{
+		Hostname: "autoto.example.com",
+		TokenRef: "env:AUTOTO_TEST_TUNNEL_TOKEN",
+	}, nil)
+	snapshot := manager.Snapshot()
+	if snapshot.PublicURL != "" {
+		t.Fatalf("idle named tunnel must not claim a live public URL, got %q", snapshot.PublicURL)
+	}
+	if snapshot.NamedHostname != "autoto.example.com" {
+		t.Fatalf("expected configured hostname, got %q", snapshot.NamedHostname)
+	}
+	if !snapshot.NamedConfigured {
+		t.Fatal("expected namedConfigured to be true")
+	}
+	if snapshot.Mode != temporaryTunnelModeQuick {
+		t.Fatalf("idle named tunnel must not report a running named mode, got %q", snapshot.Mode)
 	}
 }
 
@@ -256,6 +281,9 @@ func TestUnconfiguredNamedTunnelLeavesQuickTunnelBehaviour(t *testing.T) {
 	}
 	if snapshot.NamedConfigured {
 		t.Fatal("expected namedConfigured to be false")
+	}
+	if snapshot.NamedHostname != "" {
+		t.Fatalf("unconfigured named tunnel must not report a hostname, got %q", snapshot.NamedHostname)
 	}
 	if len(spec.Env) != 0 {
 		t.Fatalf("quick tunnel must not carry extra environment: %q", spec.Env)

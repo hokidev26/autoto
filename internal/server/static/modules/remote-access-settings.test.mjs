@@ -8,6 +8,7 @@ import {
   normalizeRemoteAccess,
   passwordPayload,
   policyPayload,
+  tunnelDisplayUrl,
 } from "./remote-access-settings.mjs";
 
 const baseAccess = {
@@ -115,6 +116,7 @@ test("normalizes and controls a temporary tunnel through the security endpoint",
     // is never described as having a stable address.
     mode: "quick",
     namedConfigured: false,
+    namedHostname: "",
   });
   assert.equal(state.remoteAccess.tunnel.publicUrl, "https://bright-sun.trycloudflare.com");
 
@@ -660,13 +662,21 @@ test("authoritative refresh clears a previous fail-closed state", async () => {
   assert.equal(state.remoteAccess.capabilities.terminalAllowed, true);
 });
 
+test("tunnelDisplayUrl prefers the live public URL and otherwise uses the named hostname", () => {
+  assert.equal(tunnelDisplayUrl({ publicUrl: "https://live.example", namedHostname: "idle.example" }), "https://live.example");
+  assert.equal(tunnelDisplayUrl({ namedHostname: "autoto.zhaowo.org" }), "https://autoto.zhaowo.org");
+  assert.equal(tunnelDisplayUrl({ namedHostname: "https://autoto.zhaowo.org" }), "https://autoto.zhaowo.org");
+  assert.equal(tunnelDisplayUrl({}), "");
+});
+
 test("a named tunnel is described as stable and an unknown mode falls back to quick", () => {
   const named = normalizeRemoteAccess({
     ...localAccess,
-    tunnel: { available: true, status: "running", publicUrl: "https://autoto.example.com", mode: "named", namedConfigured: true },
+    tunnel: { available: true, status: "running", publicUrl: "https://autoto.example.com", mode: "named", namedConfigured: true, namedHostname: "autoto.example.com" },
   }).tunnel;
   assert.equal(named.mode, "named");
   assert.equal(named.namedConfigured, true);
+  assert.equal(named.namedHostname, "autoto.example.com");
 
   // Anything other than "named" must read as quick. Describing an unknown mode as
   // stable would tell the user the address persists when it may not.
@@ -689,13 +699,43 @@ test("the tunnel card names the mode it is actually running", () => {
         startedAt: "2026-07-18T00:00:00Z",
         mode: "named",
         namedConfigured: true,
+        namedHostname: "autoto.example.com",
       },
     },
   };
   const controller = createRemoteAccessSettingsController({ state, request: async () => state.remoteAccess });
   const html = controller.render();
+  assert.match(html, /remote-access-tunnel-origin-label/);
+  assert.match(html, /<a href="https:\/\/autoto\.example\.com"/);
   assert.match(html, /autoto\.example\.com/);
+  assert.match(html, /remote-access-tunnel-qr/);
   assert.doesNotMatch(html, /trycloudflare/);
+});
+
+test("an idle named tunnel still shows the configured hostname without claiming it is live", () => {
+  const state = {
+    remoteAccess: {
+      ...localAccess,
+      tunnel: {
+        available: true,
+        installable: false,
+        status: "idle",
+        publicUrl: "",
+        error: "",
+        startedAt: "",
+        mode: "quick",
+        namedConfigured: true,
+        namedHostname: "autoto.zhaowo.org",
+      },
+    },
+  };
+  const controller = createRemoteAccessSettingsController({ state, request: async () => state.remoteAccess });
+  const html = controller.render();
+  assert.match(html, /remote-access-tunnel-origin-label/);
+  assert.match(html, /https:\/\/autoto\.zhaowo\.org/);
+  assert.match(html, /<code>https:\/\/autoto\.zhaowo\.org<\/code>/);
+  assert.doesNotMatch(html, /<a href="https:\/\/autoto\.zhaowo\.org"/);
+  assert.doesNotMatch(html, /remote-access-tunnel-qr/);
 });
 
 test("remote access cards collapse against the settings panel", async () => {

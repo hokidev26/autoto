@@ -68,6 +68,11 @@ type TemporaryTunnelSnapshot struct {
 	// derived from configuration, never from the token value, so it is safe to
 	// return to a client.
 	NamedConfigured bool `json:"namedConfigured"`
+	// NamedHostname is the configured DNS name. It is not a secret, and it is
+	// reported even while the tunnel is idle so settings can show the address a
+	// start will publish. PublicURL remains empty until the tunnel is actually
+	// running.
+	NamedHostname string `json:"namedHostname,omitempty"`
 }
 
 type temporaryTunnelProcess interface {
@@ -232,8 +237,11 @@ func attachNamedTunnel(manager *TemporaryTunnelManager, load func() config.Named
 	}
 	// The probe reads configuration only. Status is polled, and resolving a
 	// credential on every poll would be unnecessary access to secret material.
+	// The hostname is the same: it lives in config, not in the token, so showing
+	// it on the idle card does not require touching the environment.
 	probe := func() bool { return load().Configured() }
-	manager.SetNamedTunnelResolver(resolver, probe)
+	hostname := func() string { return strings.TrimSpace(load().Hostname) }
+	manager.SetNamedTunnelResolver(resolver, probe, hostname)
 }
 
 // namedPublicURL builds the origin a named tunnel will serve. cloudflared only
@@ -324,6 +332,7 @@ type TemporaryTunnelManager struct {
 	startTimeout   time.Duration
 	namedResolver  temporaryTunnelNamedResolver
 	namedProbe     temporaryTunnelNamedProbe
+	namedHostname  func() string
 	// mode records which kind of tunnel is running or last ran. It is reported to
 	// clients so a stable named hostname is not mistaken for a throwaway one.
 	mode string
@@ -337,11 +346,12 @@ func NewTemporaryTunnelManager(bindAddress, homeDir string) *TemporaryTunnelMana
 // construction because configuration is loaded after the managers are built, and
 // because the resolver reads live configuration on every start so a rotated
 // token or a changed hostname applies without restarting Autoto.
-func (m *TemporaryTunnelManager) SetNamedTunnelResolver(resolver temporaryTunnelNamedResolver, probe temporaryTunnelNamedProbe) {
+func (m *TemporaryTunnelManager) SetNamedTunnelResolver(resolver temporaryTunnelNamedResolver, probe temporaryTunnelNamedProbe, hostname func() string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.namedResolver = resolver
 	m.namedProbe = probe
+	m.namedHostname = hostname
 }
 
 // NewResolvedTunnelManager builds a manager whose target is resolved each time
@@ -510,9 +520,12 @@ func (m *TemporaryTunnelManager) snapshotLocked() TemporaryTunnelSnapshot {
 		snapshot.Mode = temporaryTunnelModeQuick
 	}
 	// Reporting whether a named tunnel is configured lets the UI describe what a
-	// start will actually do. Only the boolean crosses the boundary; the hostname
-	// is already public once running, but the token reference is not exposed.
+	// start will actually do. The hostname is not a secret and is included so the
+	// idle card can show the address; the token reference is not exposed.
 	snapshot.NamedConfigured = m.namedProbe != nil && m.namedProbe()
+	if m.namedHostname != nil {
+		snapshot.NamedHostname = strings.TrimSpace(m.namedHostname())
+	}
 	if !m.available && snapshot.Error == "" {
 		snapshot.Error = m.availableErr
 	}

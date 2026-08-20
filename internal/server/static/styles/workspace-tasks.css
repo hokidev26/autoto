@@ -3188,18 +3188,26 @@ body.white-shell.theme-light .background-task-bubble.role-assistant .message-rol
 .remote-access-generated-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: start; }
 .remote-access-generated code { display: block; max-width: 100%; overflow: auto; padding: 8px 10px; border: 1px solid var(--line, var(--ws-border, #dfe3ea)); border-radius: 7px; background: var(--bg-panel, var(--ws-card, #fff)); color: var(--text, #1f2937); font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; overflow-wrap: anywhere; user-select: all; }
 .remote-access-generated small { color: var(--muted, #64748b); font-size: 11px; line-height: 1.45; }
+.remote-access-tunnel-card { display: grid; gap: 16px; }
 .remote-access-tunnel-card .settings-provider-section-head { align-items: flex-start; }
-.remote-access-tunnel-action { min-width: 122px; justify-content: center; white-space: nowrap; }
+.remote-access-tunnel-action { min-width: 122px; justify-self: start; justify-content: center; white-space: nowrap; }
 .remote-access-tunnel-action[aria-busy="true"] { cursor: wait; }
-.remote-access-tunnel-url { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 16px 16px; padding: 10px 12px; border: 1px solid var(--line, var(--ws-border, #dfe3ea)); border-radius: 9px; background: var(--bg, var(--ws-canvas, #f8fafc)); }
-.remote-access-tunnel-url a { min-width: 0; flex: 1 1 180px; overflow-wrap: anywhere; color: var(--accent, #5369f3); font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+.remote-access-tunnel-origin { min-width: 0; display: grid; gap: 6px; }
+.remote-access-tunnel-origin-label {
+  color: var(--settings-muted-foreground, #64748b);
+  font-size: 11px;
+  font-weight: 650;
+}
+.remote-access-tunnel-url { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0; padding: 10px 12px; border: 1px solid var(--line, var(--ws-border, #dfe3ea)); border-radius: 9px; background: var(--bg, var(--ws-canvas, #f8fafc)); }
+.remote-access-tunnel-url a,
+.remote-access-tunnel-url code { min-width: 0; flex: 1 1 180px; overflow-wrap: anywhere; color: var(--accent, #5369f3); font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
 .remote-access-tunnel-url .settings-action-btn { flex: 0 0 auto; white-space: nowrap; }
 .remote-access-tunnel-phone {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: 14px 16px;
   align-items: start;
-  margin: 0 16px 16px;
+  margin: 0;
   padding: 12px;
   border: 1px solid var(--line, var(--ws-border, #dfe3ea));
   border-radius: 12px;
@@ -3765,7 +3773,9 @@ body.white-shell.theme-light.theme-dark .remote-access-tunnel-url {
   border-color: var(--settings-border);
   background: var(--settings-surface-muted);
 }
-body.white-shell.theme-light.theme-dark .remote-access-tunnel-url a { color: color-mix(in srgb, var(--settings-primary, #5369f3) 80%, #fff); }
+body.white-shell.theme-light.theme-dark .remote-access-tunnel-origin-label { color: var(--settings-muted-foreground); }
+body.white-shell.theme-light.theme-dark .remote-access-tunnel-url a,
+body.white-shell.theme-light.theme-dark .remote-access-tunnel-url code { color: color-mix(in srgb, var(--settings-primary, #5369f3) 80%, #fff); }
 body.white-shell.theme-light.theme-dark .remote-access-tunnel-phone {
   border-color: var(--settings-border);
   background: var(--settings-surface);
