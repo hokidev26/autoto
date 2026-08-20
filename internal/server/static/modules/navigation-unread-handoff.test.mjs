@@ -7,8 +7,10 @@ import { buildNavigationView, renderNavigationHTML } from "./conversation-naviga
 // so an unread branch used to paint that folder green. Expanding the project used
 // to hide the branch inside a separately collapsed fork group that never
 // aggregated. Git branches now sit at the first level, so expanding the
-// project reveals the unread row itself. The collapsed project still carries
-// .unread; the folder glyph stays grey and a badge on the twist carries the colour.
+// project reveals the unread row itself. Nested rows hide the bubble icon, so
+// that row also paints a 6px badge after the title (same colour as the folder
+// twist). The collapsed project still carries .unread; the folder glyph stays
+// grey and a badge on the twist carries the colour.
 const payload = {
   projects: [{ id: "p1", name: "Bid site", path: "/work/bid", updatedAt: "2026-03-16T09:00:00Z" }],
   conversations: [

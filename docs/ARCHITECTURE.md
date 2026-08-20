@@ -207,6 +207,8 @@ The current UI is served from `internal/server/static/index.html` and `internal/
 
 The composer model picker keeps a hidden selected option when a conversation is still bound to a model the live catalog no longer offers, so the closed chip can show it as unavailable without listing it as a choice.
 
+A collapsed project row carries `.unread` for hidden chats; expanding it drops that mark and paints the unread conversation row instead (nested rows hide the bubble icon, so unread is a 6px title badge).
+
 When adding frontend features, keep extracting stable seams out of `app-main.mjs` before adding more monolithic state:
 
 - settings panels

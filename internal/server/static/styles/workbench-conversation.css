@@ -887,7 +887,10 @@ body.white-shell.theme-light .navigation-conversation-row.nested.active .navigat
    what previously left every finished conversation looking permanently new.
    Project folders are excluded: a collapsed group still carries .unread for
    hidden chats (and a new browser has an empty seen map), but the glyph must
-   stay a folder. Unread on that row is a badge on the twist, not a green fill. */
+   stay a folder. Unread on that row is a badge on the twist, not a green fill.
+   Nested conversation rows also hide the bubble icon, so unread there is the
+   same 6px badge after the title — otherwise expanding a project left only
+   the folder mark and no way to see which chat was new. */
 body.white-shell.theme-light .navigation-conversation-row.status-running:not(.navigation-project-row) .navigation-agent-icon,
 body.white-shell.theme-light .navigation-conversation-row.status-pending:not(.navigation-project-row) .navigation-agent-icon,
 body.white-shell.theme-light .navigation-conversation-row.status-queued:not(.navigation-project-row) .navigation-agent-icon {
@@ -936,14 +939,25 @@ body.white-shell.theme-light .navigation-conversation-row.status-waiting:not(.na
   background: #d97706;
 }
 
-body.white-shell.theme-light .navigation-conversation-row.unread:not(.navigation-project-row):not(.status-running):not(.status-pending):not(.status-queued):not(.status-waiting):not(.status-error):not(.status-failed)::after {
+body.white-shell.theme-light .navigation-conversation-row.unread:not(.navigation-project-row):not(.status-running):not(.status-pending):not(.status-queued):not(.status-waiting):not(.status-error):not(.status-failed) .navigation-conversation-title::after {
+  content: "";
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
   background: #22c55e;
+  box-shadow: 0 0 0 1.5px var(--ws-card, #fff);
+  pointer-events: none;
 }
 
 /* An unread reply is worth noticing without being loud: the title goes from
    regular to semibold, which reads as "new" even for a colour-blind reader. */
 body.white-shell.theme-light .navigation-conversation-row.unread .navigation-conversation-title {
   font-weight: 700;
+}
+
+body.white-shell.theme-light .navigation-conversation-row.nested.unread:not(.status-running):not(.status-pending):not(.status-queued):not(.status-waiting):not(.status-error):not(.status-failed) .navigation-conversation-title {
+  color: #22c55e;
 }
 
 body.white-shell.theme-light .navigation-conversation-row.nested.status-running .navigation-conversation-title,

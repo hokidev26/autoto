@@ -1015,6 +1015,8 @@ test("desktop conversation layout follows the compact resizable geometry", async
   assert.match(styles, /body\.white-shell\.theme-light \.navigation-project-group > \.navigation-project-row \.navigation-folder-icon svg\s*\{[\s\S]*?stroke-width:\s*1\.75/);
   assert.match(styles, /body\.white-shell\.theme-light \.navigation-conversation-row\.unread:not\(\.navigation-project-row\)/);
   assert.match(styles, /body\.white-shell\.theme-light \.navigation-project-row\.unread > \.navigation-project-twist::after\s*\{[\s\S]*?background:\s*#22c55e/);
+  assert.match(styles, /body\.white-shell\.theme-light \.navigation-conversation-row\.unread:not\(\.navigation-project-row\)[\s\S]*?\.navigation-conversation-title::after\s*\{[\s\S]*?background:\s*#22c55e/);
+  assert.match(styles, /body\.white-shell\.theme-light \.navigation-conversation-row\.nested\.unread[\s\S]*?\.navigation-conversation-title\s*\{[\s\S]*?color:\s*#22c55e/);
   assert.match(styles, /body\.white-shell\.theme-light \.navigation-conversation-row\.nested \.navigation-agent-icon\s*\{[\s\S]*?display:\s*none/);
   assert.match(styles, /body\.white-shell\.theme-light \.navigation-conversation-row\.nested\s*\{[\s\S]*?padding:\s*1px 7px 1px 28px/);
   assert.match(styles, /body\.white-shell\.theme-light \.messages:not\(\.empty\)\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\)[\s\S]*?grid-auto-rows:\s*max-content[\s\S]*?justify-content:\s*start[\s\S]*?row-gap:\s*8px[\s\S]*?padding:\s*12px 8px 12px/);

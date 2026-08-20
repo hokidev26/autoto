@@ -31,6 +31,7 @@ All notable changes to Autoto are tracked here. The project is still an experime
 - Remote collaboration transcripts render user and assistant text through the same Markdown pipeline as a local chat. Lists, emphasis, and inline code no longer print dashes, asterisks, or backticks.
 - Stopping a run no longer inserts a “this turn was stopped / the model left no text” line in the transcript. Send still becomes Continue. Interrupt reasons that are not a user Stop (for example a continuation Git check) still show.
 - After a custom provider’s API key (and therefore its fetched catalog) changes, the conversation model menu no longer lists the previous binding as a disabled “currently unavailable” choice. The closed chip still shows that binding until a live model is picked.
+- Expanding a project shows which conversation is unread: a green dot after that row’s title, matching the collapsed-folder badge. The folder mark still stands in only while the group is shut.
 - Direct loopback UI assets revalidate before paint so a replaced desktop exe is not stuck on yesterday's JavaScript. Tunneled sessions still use stale-while-revalidate. The stylesheet is served as one file instead of sixteen `@import` round trips, and the boot overlay no longer waits on a long fade.
 - The conversation Git glyph is a three-node branch. The previous overlapping curves read as a knot at header size.
 - The sidebar Autoto mark is a hollow smile with filled eye dots. The circle had been filling black, and the old `h.01` eye strokes vanished once the face was unfilled.
