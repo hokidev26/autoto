@@ -105,6 +105,8 @@ CREATE TABLE IF NOT EXISTS remote_peer_pairings (
   scopes_json TEXT NOT NULL DEFAULT '[]',
   credential_revision INTEGER NOT NULL DEFAULT 1,
   grant_revision INTEGER NOT NULL DEFAULT 1,
+  machine_access INTEGER NOT NULL DEFAULT 0,
+  permission_mode_cap TEXT NOT NULL DEFAULT 'readOnly',
   expires_at TEXT,
   last_seen_at TEXT,
   paired_at TEXT NOT NULL,
@@ -122,6 +124,9 @@ CREATE TABLE IF NOT EXISTS remote_peer_pairings (
   CHECK (length(CAST(scopes_json AS BLOB)) <= 1024 AND json_valid(scopes_json) AND json_type(scopes_json) = 'array'),
   CHECK (credential_revision >= 1),
   CHECK (grant_revision >= 1),
+  CHECK (machine_access IN (0, 1)),
+  CHECK (permission_mode_cap IN ('readOnly', 'acceptEdits')),
+  CHECK (machine_access = 0 OR local_role = 'host'),
   CHECK (created_at <= paired_at AND paired_at <= updated_at),
   CHECK (expires_at IS NULL OR paired_at < expires_at),
   CHECK (last_seen_at IS NULL OR (paired_at <= last_seen_at AND last_seen_at <= updated_at)),
@@ -205,6 +210,8 @@ type RemotePeerPairing struct {
 	Scopes             []string `json:"scopes"`
 	CredentialRevision int64    `json:"credentialRevision"`
 	GrantRevision      int64    `json:"grantRevision"`
+	MachineAccess      bool     `json:"machineAccess"`
+	PermissionModeCap  string   `json:"permissionModeCap"`
 	ExpiresAt          string   `json:"expiresAt,omitempty"`
 	LastSeenAt         string   `json:"lastSeenAt,omitempty"`
 	PairedAt           string   `json:"pairedAt"`
@@ -232,7 +239,7 @@ type RemotePeerGrant struct {
 }
 
 const remotePairingInvitationColumns = `id, code_hash, protocol_version, status, COALESCE(requester_display_name,''), COALESCE(requester_installation_id,''), COALESCE(requester_public_key,''), COALESCE(requester_fingerprint,''), failed_attempts, COALESCE(locked_until,''), expires_at, revision, created_at, updated_at, COALESCE(completed_at,'')`
-const remotePeerPairingColumns = `id, local_role, display_name, peer_installation_id, peer_public_key, peer_fingerprint, COALESCE(endpoint_origin,''), status, scopes_json, credential_revision, grant_revision, COALESCE(expires_at,''), COALESCE(last_seen_at,''), paired_at, COALESCE(revoked_at,''), created_at, updated_at`
+const remotePeerPairingColumns = `id, local_role, display_name, peer_installation_id, peer_public_key, peer_fingerprint, COALESCE(endpoint_origin,''), status, scopes_json, credential_revision, grant_revision, COALESCE(machine_access,0), COALESCE(permission_mode_cap,'readOnly'), COALESCE(expires_at,''), COALESCE(last_seen_at,''), paired_at, COALESCE(revoked_at,''), created_at, updated_at`
 const remotePeerGrantColumns = `id, pairing_id, project_id, agent_id, scopes_json, permission_mode_cap, revision, created_at, updated_at`
 
 type remoteCollaborationQueryer interface {
@@ -406,11 +413,8 @@ func (s *remoteCollaborationStore) ApproveRemotePairingInvitation(ctx context.Co
 	if err != nil {
 		return RemotePeerPairing{}, nil, err
 	}
-	canonicalGrants, grantJSON, err := canonicalRemotePeerGrants(ctx, tx, pairing.ID, pairing.GrantRevision, grants, now)
+	canonicalGrants, grantJSON, err := prepareRemotePeerAuthorizationGrants(ctx, tx, pairing.ID, pairing.GrantRevision, pairing.MachineAccess, grants, pairing.Scopes, now)
 	if err != nil {
-		return RemotePeerPairing{}, nil, err
-	}
-	if err := validateRemoteGrantScopes(pairing.Scopes, canonicalGrants); err != nil {
 		return RemotePeerPairing{}, nil, err
 	}
 	if err := insertRemotePeerPairing(ctx, tx, pairing, scopesJSON); err != nil {
@@ -604,6 +608,9 @@ func (s *remoteCollaborationStore) ReplaceRemotePeerGrants(ctx context.Context, 
 	if pairing.Status != RemotePeerPairingStatusActive || pairing.GrantRevision != expectedGrantRevision || pairing.ExpiresAt != "" && pairing.ExpiresAt <= now {
 		return RemotePeerPairing{}, nil, fmt.Errorf("%w: remote peer grants cannot be replaced", ErrConflict)
 	}
+	if pairing.MachineAccess {
+		return RemotePeerPairing{}, nil, errors.New("per-agent grants cannot be replaced while machine access is enabled")
+	}
 	newRevision := expectedGrantRevision + 1
 	canonicalGrants, grantJSON, err := canonicalRemotePeerGrants(ctx, tx, pairingID, newRevision, grants, now)
 	if err != nil {
@@ -636,8 +643,9 @@ func (s *remoteCollaborationStore) ReplaceRemotePeerGrants(ctx context.Context, 
 }
 
 // ReplaceRemotePeerAuthorization atomically updates host-wide scopes, optional
-// expiration, and the complete per-agent grant set under one grant revision.
-func (s *remoteCollaborationStore) ReplaceRemotePeerAuthorization(ctx context.Context, pairingID string, expectedGrantRevision int64, scopes []string, expiresAt string, grants []RemotePeerGrant) (RemotePeerPairing, []RemotePeerGrant, error) {
+// expiration, machine access, and the complete per-agent grant set under one
+// grant revision. Machine access and per-agent grants are mutually exclusive.
+func (s *remoteCollaborationStore) ReplaceRemotePeerAuthorization(ctx context.Context, pairingID string, expectedGrantRevision int64, scopes []string, expiresAt string, grants []RemotePeerGrant, machineAccess bool, permissionModeCap string) (RemotePeerPairing, []RemotePeerGrant, error) {
 	pairingID, err := normalizeRemoteID("pairing id", pairingID)
 	if err != nil {
 		return RemotePeerPairing{}, nil, err
@@ -669,15 +677,16 @@ func (s *remoteCollaborationStore) ReplaceRemotePeerAuthorization(ctx context.Co
 	if pairing.LocalRole != RemotePeerLocalRoleHost || pairing.Status != RemotePeerPairingStatusActive || pairing.GrantRevision != expectedGrantRevision || pairing.ExpiresAt != "" && pairing.ExpiresAt <= now {
 		return RemotePeerPairing{}, nil, fmt.Errorf("%w: remote peer authorization cannot be replaced", ErrConflict)
 	}
-	newRevision := expectedGrantRevision + 1
-	canonicalGrants, grantJSON, err := canonicalRemotePeerGrants(ctx, tx, pairingID, newRevision, grants, now)
+	machineAccess, permissionModeCap, err = canonicalRemotePeerMachineAccess(pairing.LocalRole, machineAccess, permissionModeCap)
 	if err != nil {
 		return RemotePeerPairing{}, nil, err
 	}
-	if err := validateRemoteGrantScopes(normalizedScopes, canonicalGrants); err != nil {
+	newRevision := expectedGrantRevision + 1
+	canonicalGrants, grantJSON, err := prepareRemotePeerAuthorizationGrants(ctx, tx, pairingID, newRevision, machineAccess, grants, normalizedScopes, now)
+	if err != nil {
 		return RemotePeerPairing{}, nil, err
 	}
-	result, err := tx.ExecContext(ctx, `UPDATE remote_peer_pairings SET scopes_json = ?, expires_at = NULLIF(?, ''), grant_revision = grant_revision + 1, updated_at = ? WHERE id = ? AND local_role = 'host' AND status = 'active' AND grant_revision = ? AND (expires_at IS NULL OR expires_at > ?)`, scopesJSON, expiresAt, now, pairingID, expectedGrantRevision, now)
+	result, err := tx.ExecContext(ctx, `UPDATE remote_peer_pairings SET scopes_json = ?, expires_at = NULLIF(?, ''), grant_revision = grant_revision + 1, machine_access = ?, permission_mode_cap = ?, updated_at = ? WHERE id = ? AND local_role = 'host' AND status = 'active' AND grant_revision = ? AND (expires_at IS NULL OR expires_at > ?)`, scopesJSON, expiresAt, boolInt(machineAccess), permissionModeCap, now, pairingID, expectedGrantRevision, now)
 	if err != nil {
 		return RemotePeerPairing{}, nil, err
 	}
@@ -733,6 +742,39 @@ func (s *remoteCollaborationStore) ListRemotePeerGrants(ctx context.Context, pai
 		items = append(items, item)
 	}
 	return items, rows.Err()
+}
+
+// ListRemotePeerMachineAccessAgentIDs is the live allow list for a host pairing
+// with machine access. It is evaluated at request time so later projects and
+// conversations are included without rewriting grant rows. Archived rows and
+// standalone conversation-flow containers stay out, matching the host picker.
+func (s *remoteCollaborationStore) ListRemotePeerMachineAccessAgentIDs(ctx context.Context) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `
+SELECT a.id
+FROM agents a
+JOIN worklines w ON w.id = a.workline_id
+JOIN projects p ON p.id = w.project_id
+WHERE p.status = 'active'
+  AND p.archived_at IS NULL
+  AND a.archived_at IS NULL
+  AND p.flow_mode != ?
+ORDER BY a.id`, ProjectFlowModeConversation)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ids := make([]string, 0)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(id) == "" {
+			continue
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
 func (s *remoteCollaborationStore) RevokeRemotePeerPairing(ctx context.Context, id, expectedStatus string, expectedCredentialRevision int64) (RemotePeerPairing, error) {
@@ -857,7 +899,7 @@ func remoteInvitationClaimMatchesRequester(invitation RemotePairingInvitation, c
 }
 
 func insertRemotePeerPairing(ctx context.Context, execer remoteCollaborationExecer, pairing RemotePeerPairing, scopesJSON string) error {
-	_, err := execer.ExecContext(ctx, `INSERT INTO remote_peer_pairings (id, local_role, display_name, peer_installation_id, peer_public_key, peer_fingerprint, endpoint_origin, status, scopes_json, credential_revision, grant_revision, expires_at, last_seen_at, paired_at, revoked_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, NULLIF(?,''), 'active', ?, ?, ?, NULLIF(?,''), NULL, ?, NULL, ?, ?)`, pairing.ID, pairing.LocalRole, pairing.DisplayName, pairing.PeerInstallationID, pairing.PeerPublicKey, pairing.PeerFingerprint, pairing.EndpointOrigin, scopesJSON, pairing.CredentialRevision, pairing.GrantRevision, pairing.ExpiresAt, pairing.PairedAt, pairing.CreatedAt, pairing.UpdatedAt)
+	_, err := execer.ExecContext(ctx, `INSERT INTO remote_peer_pairings (id, local_role, display_name, peer_installation_id, peer_public_key, peer_fingerprint, endpoint_origin, status, scopes_json, credential_revision, grant_revision, machine_access, permission_mode_cap, expires_at, last_seen_at, paired_at, revoked_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, NULLIF(?,''), 'active', ?, ?, ?, ?, ?, NULLIF(?,''), NULL, ?, NULL, ?, ?)`, pairing.ID, pairing.LocalRole, pairing.DisplayName, pairing.PeerInstallationID, pairing.PeerPublicKey, pairing.PeerFingerprint, pairing.EndpointOrigin, scopesJSON, pairing.CredentialRevision, pairing.GrantRevision, boolInt(pairing.MachineAccess), pairing.PermissionModeCap, pairing.ExpiresAt, pairing.PairedAt, pairing.CreatedAt, pairing.UpdatedAt)
 	if err != nil {
 		if isUniqueConstraint(err) {
 			return fmt.Errorf("%w: remote peer pairing already exists", ErrConflict)
@@ -985,6 +1027,10 @@ func canonicalRemotePeerPairingForCreate(pairing RemotePeerPairing, requiredRole
 	if pairing.CredentialRevision < 1 || pairing.GrantRevision < 1 {
 		return RemotePeerPairing{}, "", errors.New("invalid remote peer pairing revision")
 	}
+	pairing.MachineAccess, pairing.PermissionModeCap, err = canonicalRemotePeerMachineAccess(pairing.LocalRole, pairing.MachineAccess, pairing.PermissionModeCap)
+	if err != nil {
+		return RemotePeerPairing{}, "", err
+	}
 	pairing.Status = RemotePeerPairingStatusActive
 	pairing.LastSeenAt = ""
 	pairing.PairedAt = now
@@ -1007,6 +1053,45 @@ func validateRemoteGrantScopes(pairingScopes []string, grants []RemotePeerGrant)
 		}
 	}
 	return nil
+}
+
+func canonicalRemotePeerPermissionModeCap(value string) (string, error) {
+	switch strings.TrimSpace(value) {
+	case "", RemotePeerPermissionModeReadOnly:
+		return RemotePeerPermissionModeReadOnly, nil
+	case RemotePeerPermissionModeAcceptEdits:
+		return RemotePeerPermissionModeAcceptEdits, nil
+	default:
+		return "", errors.New("invalid remote peer permission mode cap")
+	}
+}
+
+func canonicalRemotePeerMachineAccess(role string, machineAccess bool, permissionModeCap string) (bool, string, error) {
+	cap, err := canonicalRemotePeerPermissionModeCap(permissionModeCap)
+	if err != nil {
+		return false, "", err
+	}
+	if strings.TrimSpace(role) != RemotePeerLocalRoleHost {
+		return false, RemotePeerPermissionModeReadOnly, nil
+	}
+	return machineAccess, cap, nil
+}
+
+func prepareRemotePeerAuthorizationGrants(ctx context.Context, queryer remoteCollaborationQueryer, pairingID string, revision int64, machineAccess bool, grants []RemotePeerGrant, pairingScopes []string, now string) ([]RemotePeerGrant, []string, error) {
+	if machineAccess {
+		if len(grants) > 0 {
+			return nil, nil, errors.New("machine access cannot be combined with per-agent grants")
+		}
+		return []RemotePeerGrant{}, nil, nil
+	}
+	canonical, encoded, err := canonicalRemotePeerGrants(ctx, queryer, pairingID, revision, grants, now)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := validateRemoteGrantScopes(pairingScopes, canonical); err != nil {
+		return nil, nil, err
+	}
+	return canonical, encoded, nil
 }
 
 func canonicalRemotePeerGrants(ctx context.Context, queryer remoteCollaborationQueryer, pairingID string, revision int64, grants []RemotePeerGrant, now string) ([]RemotePeerGrant, []string, error) {
@@ -1086,7 +1171,8 @@ func scanRemotePairingInvitation(scan func(...any) error) (RemotePairingInvitati
 func scanRemotePeerPairing(scan func(...any) error) (RemotePeerPairing, error) {
 	var pairing RemotePeerPairing
 	var scopesJSON string
-	if err := scan(&pairing.ID, &pairing.LocalRole, &pairing.DisplayName, &pairing.PeerInstallationID, &pairing.PeerPublicKey, &pairing.PeerFingerprint, &pairing.EndpointOrigin, &pairing.Status, &scopesJSON, &pairing.CredentialRevision, &pairing.GrantRevision, &pairing.ExpiresAt, &pairing.LastSeenAt, &pairing.PairedAt, &pairing.RevokedAt, &pairing.CreatedAt, &pairing.UpdatedAt); err != nil {
+	var machineAccess int
+	if err := scan(&pairing.ID, &pairing.LocalRole, &pairing.DisplayName, &pairing.PeerInstallationID, &pairing.PeerPublicKey, &pairing.PeerFingerprint, &pairing.EndpointOrigin, &pairing.Status, &scopesJSON, &pairing.CredentialRevision, &pairing.GrantRevision, &machineAccess, &pairing.PermissionModeCap, &pairing.ExpiresAt, &pairing.LastSeenAt, &pairing.PairedAt, &pairing.RevokedAt, &pairing.CreatedAt, &pairing.UpdatedAt); err != nil {
 		return RemotePeerPairing{}, err
 	}
 	if err := json.Unmarshal([]byte(scopesJSON), &pairing.Scopes); err != nil {
@@ -1097,6 +1183,13 @@ func scanRemotePeerPairing(scan func(...any) error) (RemotePeerPairing, error) {
 		return RemotePeerPairing{}, errors.New("invalid stored remote peer pairing scopes")
 	}
 	pairing.Scopes = normalized
+	pairing.MachineAccess = machineAccess == 1
+	if pairing.MachineAccess, pairing.PermissionModeCap, err = canonicalRemotePeerMachineAccess(pairing.LocalRole, pairing.MachineAccess, pairing.PermissionModeCap); err != nil {
+		return RemotePeerPairing{}, errors.New("invalid stored remote peer pairing")
+	}
+	if pairing.MachineAccess && pairing.LocalRole != RemotePeerLocalRoleHost {
+		return RemotePeerPairing{}, errors.New("invalid stored remote peer pairing")
+	}
 	if _, err := normalizeRemoteID("pairing id", pairing.ID); err != nil || validateRemoteText("pairing display name", pairing.DisplayName, 256, true) != nil || !validRemoteInstallationID(pairing.PeerInstallationID) || !validRemotePublicKey(pairing.PeerPublicKey) || !validRemoteSHA256(pairing.PeerFingerprint) {
 		return RemotePeerPairing{}, errors.New("invalid stored remote peer pairing")
 	}

@@ -251,6 +251,36 @@ func createPeerAPIHostPairing(t *testing.T, store *db.Store, controller *peercon
 	return pairing, agent
 }
 
+func createPeerAPIHostMachinePairing(t *testing.T, store *db.Store, controller *peercontrol.Identity, pairingScopes []string, permissionMode string) db.RemotePeerPairing {
+	t.Helper()
+	ctx := context.Background()
+	secret := bytes.Repeat([]byte{0x66}, 32)
+	invitation, err := store.CreateRemotePairingInvitation(ctx, db.RemotePairingInvitation{
+		ID: db.NewID(), CodeHash: peercontrol.HashInvitationSecretHex(secret), ProtocolVersion: peercontrol.ProtocolVersion,
+		ExpiresAt: time.Now().UTC().Add(time.Hour).Format(time.RFC3339Nano),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	public := controller.Public()
+	claimed, err := store.ClaimRemotePairingInvitation(ctx, invitation.ID, invitation.CodeHash, invitation.Revision, db.RemotePairingRequester{
+		DisplayName: "Controller", InstallationID: "controller-installation", PublicKey: public.PublicKey, Fingerprint: public.Fingerprint,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pairing, grants, err := store.ApproveRemotePairingInvitation(ctx, invitation.ID, claimed.Revision, db.RemotePeerPairing{
+		ID: invitation.ID, Scopes: pairingScopes, MachineAccess: true, PermissionModeCap: permissionMode,
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !pairing.MachineAccess || len(grants) != 0 {
+		t.Fatalf("unexpected machine pairing: pairing=%+v grants=%+v", pairing, grants)
+	}
+	return pairing
+}
+
 func peerAPISessionToken(t *testing.T, manager *peercontrol.Manager, controller *peercontrol.Identity, pairingID string) string {
 	t.Helper()
 	const origin = "https://peer.example.test"
@@ -501,5 +531,183 @@ func TestPeerResolveApprovalDowngradesSessionDecision(t *testing.T) {
 	details := string(audits[0].DetailsJSON)
 	if !strings.Contains(details, `"decision":"allow_session"`) || !strings.Contains(details, `"appliedDecision":"allow_once"`) {
 		t.Fatalf("audit does not record the downgrade: %s", details)
+	}
+}
+
+func TestPeerSnapshotMachineAccessIncludesLaterProjects(t *testing.T) {
+	app, store, manager := newPeerAPITestServer(t)
+	enablePeerManagerForAPI(t, manager)
+	controller := newPeerAPIIdentity(t)
+	pairing := createPeerAPIHostMachinePairing(t, store, controller,
+		[]string{db.RemotePeerScopeObserve, db.RemotePeerScopeSendTask},
+		db.RemotePeerPermissionModeAcceptEdits,
+	)
+	if _, _, _, err := store.CreateProject(context.Background(), "First shared", "", t.TempDir(), "test:model", "readOnly"); err != nil {
+		t.Fatal(err)
+	}
+	_, _, laterAgent, err := store.CreateProject(context.Background(), "Later shared", "", t.TempDir(), "test:later", "acceptEdits")
+	if err != nil {
+		t.Fatal(err)
+	}
+	token := peerAPISessionToken(t, manager, controller, pairing.ID)
+	request := peerAPITestRequest(t, http.MethodPost, "/api/peer/v1/snapshot", peercontrol.GetSnapshotRequest{PairingID: pairing.ID})
+	request.Header.Set("Authorization", "Bearer "+token)
+	response := httptest.NewRecorder()
+	app.Routes().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("machine-access snapshot returned %d: %s", response.Code, response.Body.String())
+	}
+	var snapshot peercontrol.GetSnapshotResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Projects) != 2 {
+		t.Fatalf("machine-access snapshot projects=%d body=%s", len(snapshot.Projects), response.Body.String())
+	}
+	foundLater := false
+	for _, project := range snapshot.Projects {
+		for _, agent := range project.Agents {
+			if agent.ID == laterAgent.ID {
+				foundLater = true
+				if agent.PermissionModeCap != db.RemotePeerPermissionModeAcceptEdits {
+					t.Fatalf("later agent cap=%q", agent.PermissionModeCap)
+				}
+			}
+		}
+	}
+	if !foundLater {
+		t.Fatalf("later project missing from machine-access snapshot: %s", response.Body.String())
+	}
+
+	laterRuntime := peerAPITestRequest(t, http.MethodPost, "/api/peer/v1/agents/runtime", peercontrol.UpdateAgentRuntimeRequest{
+		PairingID: pairing.ID, AgentID: laterAgent.ID, PermissionMode: "acceptEdits",
+	})
+	laterRuntime.Header.Set("Authorization", "Bearer "+token)
+	laterRuntimeResponse := httptest.NewRecorder()
+	app.Routes().ServeHTTP(laterRuntimeResponse, laterRuntime)
+	if laterRuntimeResponse.Code != http.StatusOK {
+		t.Fatalf("later project runtime update returned %d: %s", laterRuntimeResponse.Code, laterRuntimeResponse.Body.String())
+	}
+
+	bypass := peerAPITestRequest(t, http.MethodPost, "/api/peer/v1/agents/runtime", peercontrol.UpdateAgentRuntimeRequest{
+		PairingID: pairing.ID, AgentID: laterAgent.ID, PermissionMode: "bypassPermissions",
+	})
+	bypass.Header.Set("Authorization", "Bearer "+token)
+	bypassResponse := httptest.NewRecorder()
+	app.Routes().ServeHTTP(bypassResponse, bypass)
+	if bypassResponse.Code != http.StatusForbidden {
+		t.Fatalf("machine access allowed bypassPermissions: %d %s", bypassResponse.Code, bypassResponse.Body.String())
+	}
+}
+
+func TestPeerSnapshotWithoutMachineAccessHidesUngrantedProjects(t *testing.T) {
+	app, store, manager := newPeerAPITestServer(t)
+	enablePeerManagerForAPI(t, manager)
+	controller := newPeerAPIIdentity(t)
+	pairing, granted := createPeerAPIHostPairing(t, store, controller,
+		[]string{db.RemotePeerScopeObserve},
+		[]string{db.RemotePeerScopeObserve},
+		db.RemotePeerPermissionModeReadOnly,
+	)
+	_, _, laterAgent, err := store.CreateProject(context.Background(), "Secret later", "", t.TempDir(), "test:secret", "readOnly")
+	if err != nil {
+		t.Fatal(err)
+	}
+	token := peerAPISessionToken(t, manager, controller, pairing.ID)
+	request := peerAPITestRequest(t, http.MethodPost, "/api/peer/v1/snapshot", peercontrol.GetSnapshotRequest{PairingID: pairing.ID})
+	request.Header.Set("Authorization", "Bearer "+token)
+	response := httptest.NewRecorder()
+	app.Routes().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("per-project snapshot returned %d: %s", response.Code, response.Body.String())
+	}
+	body := response.Body.String()
+	if !strings.Contains(body, granted.ID) || strings.Contains(body, laterAgent.ID) {
+		t.Fatalf("ungranted later agent leaked into snapshot: %s", body)
+	}
+	hidden := peerAPITestRequest(t, http.MethodPost, "/api/peer/v1/snapshot", peercontrol.GetSnapshotRequest{PairingID: pairing.ID, AgentID: laterAgent.ID})
+	hidden.Header.Set("Authorization", "Bearer "+token)
+	hiddenResponse := httptest.NewRecorder()
+	app.Routes().ServeHTTP(hiddenResponse, hidden)
+	if hiddenResponse.Code != http.StatusForbidden {
+		t.Fatalf("ungranted later agent snapshot returned %d: %s", hiddenResponse.Code, hiddenResponse.Body.String())
+	}
+}
+
+func TestPeerMachineAccessHidesArchivedAndConversationFlow(t *testing.T) {
+	app, store, manager := newPeerAPITestServer(t)
+	enablePeerManagerForAPI(t, manager)
+	controller := newPeerAPIIdentity(t)
+	pairing := createPeerAPIHostMachinePairing(t, store, controller,
+		[]string{db.RemotePeerScopeObserve, db.RemotePeerScopeSendTask},
+		db.RemotePeerPermissionModeAcceptEdits,
+	)
+	ctx := context.Background()
+	project, _, agent, err := store.CreateProject(ctx, "Visible then archived", "", t.TempDir(), "test:model", "readOnly")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, chat, err := store.CreateStandaloneConversation(ctx, "Standalone chat", "test:chat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	token := peerAPISessionToken(t, manager, controller, pairing.ID)
+	listed := peerAPITestRequest(t, http.MethodPost, "/api/peer/v1/snapshot", peercontrol.GetSnapshotRequest{PairingID: pairing.ID})
+	listed.Header.Set("Authorization", "Bearer "+token)
+	listedResponse := httptest.NewRecorder()
+	app.Routes().ServeHTTP(listedResponse, listed)
+	if listedResponse.Code != http.StatusOK {
+		t.Fatalf("machine-access snapshot returned %d: %s", listedResponse.Code, listedResponse.Body.String())
+	}
+	if !strings.Contains(listedResponse.Body.String(), agent.ID) || strings.Contains(listedResponse.Body.String(), chat.ID) {
+		t.Fatalf("conversation-flow leaked into machine-access snapshot: %s", listedResponse.Body.String())
+	}
+
+	chatSnapshot := peerAPITestRequest(t, http.MethodPost, "/api/peer/v1/snapshot", peercontrol.GetSnapshotRequest{PairingID: pairing.ID, AgentID: chat.ID})
+	chatSnapshot.Header.Set("Authorization", "Bearer "+token)
+	chatResponse := httptest.NewRecorder()
+	app.Routes().ServeHTTP(chatResponse, chatSnapshot)
+	if chatResponse.Code != http.StatusForbidden {
+		t.Fatalf("conversation-flow snapshot by id returned %d: %s", chatResponse.Code, chatResponse.Body.String())
+	}
+
+	archived := true
+	if _, err := store.UpdateProjectNavigationState(ctx, project.ID, nil, &archived); err != nil {
+		t.Fatal(err)
+	}
+	archivedSnapshot := peerAPITestRequest(t, http.MethodPost, "/api/peer/v1/snapshot", peercontrol.GetSnapshotRequest{PairingID: pairing.ID, AgentID: agent.ID})
+	archivedSnapshot.Header.Set("Authorization", "Bearer "+token)
+	archivedResponse := httptest.NewRecorder()
+	app.Routes().ServeHTTP(archivedResponse, archivedSnapshot)
+	if archivedResponse.Code != http.StatusForbidden {
+		t.Fatalf("archived agent snapshot by id returned %d: %s", archivedResponse.Code, archivedResponse.Body.String())
+	}
+}
+
+func TestPeerMachineAccessRejectsInconsistentGrantRows(t *testing.T) {
+	app, store, manager := newPeerAPITestServer(t)
+	enablePeerManagerForAPI(t, manager)
+	controller := newPeerAPIIdentity(t)
+	pairing := createPeerAPIHostMachinePairing(t, store, controller,
+		[]string{db.RemotePeerScopeObserve},
+		db.RemotePeerPermissionModeReadOnly,
+	)
+	ctx := context.Background()
+	project, _, agent, err := store.CreateProject(ctx, "Leftover grant", "", t.TempDir(), "test:model", "readOnly")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := db.Now()
+	if _, err := store.DB().ExecContext(ctx, `INSERT INTO remote_peer_grants (id, pairing_id, project_id, agent_id, scopes_json, permission_mode_cap, revision, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		db.NewID(), pairing.ID, project.ID, agent.ID, `["observe"]`, db.RemotePeerPermissionModeReadOnly, pairing.GrantRevision, now, now); err != nil {
+		t.Fatal(err)
+	}
+	token := peerAPISessionToken(t, manager, controller, pairing.ID)
+	request := peerAPITestRequest(t, http.MethodPost, "/api/peer/v1/snapshot", peercontrol.GetSnapshotRequest{PairingID: pairing.ID})
+	request.Header.Set("Authorization", "Bearer "+token)
+	response := httptest.NewRecorder()
+	app.Routes().ServeHTTP(response, request)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("machine access with leftover grants returned %d: %s", response.Code, response.Body.String())
 	}
 }

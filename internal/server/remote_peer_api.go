@@ -304,14 +304,29 @@ func (s *Server) peerSnapshot(w http.ResponseWriter, r *http.Request) {
 	projects := make([]peercontrol.SnapshotProject, 0)
 	projectIndexes := make(map[string]int)
 	var selectedGrant *db.RemotePeerGrant
-	for _, grant := range authorized.grants {
+	grants := authorized.grants
+	if authorized.pairing.MachineAccess {
+		listed, ok := s.listPeerMachineAccessGrants(r, authorized.pairing)
+		if !ok {
+			writeError(w, http.StatusInternalServerError, "peer authorization failed")
+			return
+		}
+		grants = listed
+	}
+	for _, grant := range grants {
 		if grant.Revision != authorized.session.GrantRevision || !scopeStringsContain(grant.Scopes, peercontrol.ScopeObserve) {
 			continue
 		}
 		project, agent, valid := s.loadPeerGrantedAgent(r, grant)
 		if !valid {
+			if authorized.pairing.MachineAccess {
+				continue
+			}
 			writeError(w, http.StatusUnauthorized, "peer grant authorization is invalid")
 			return
+		}
+		if authorized.pairing.MachineAccess && !peerMachineAccessInventoryEligible(project, agent) {
+			continue
 		}
 		scopes, err := peercontrol.NormalizeScopes(grant.Scopes)
 		if err != nil {
@@ -335,8 +350,17 @@ func (s *Server) peerSnapshot(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if request.AgentID != "" && selectedGrant == nil {
-		writeError(w, http.StatusForbidden, "peer grant does not authorize this agent")
-		return
+		if authorized.pairing.MachineAccess && authorized.grant.AgentID == request.AgentID {
+			project, agent, valid := s.loadPeerGrantedAgent(r, authorized.grant)
+			if valid && peerMachineAccessInventoryEligible(project, agent) {
+				copy := authorized.grant
+				selectedGrant = &copy
+			}
+		}
+		if selectedGrant == nil {
+			writeError(w, http.StatusForbidden, "peer grant does not authorize this agent")
+			return
+		}
 	}
 	response := peercontrol.GetSnapshotResponse{
 		ProtocolVersion: peercontrol.ProtocolVersion, PairingID: authorized.pairing.ID,
@@ -690,18 +714,30 @@ func (s *Server) authorizePeerRequest(w http.ResponseWriter, r *http.Request, de
 		writeError(w, http.StatusInternalServerError, "peer authorization failed")
 		return peerAuthorizedRequest{}, false
 	}
-	for _, grant := range grants {
-		if grant.PairingID != pairing.ID || grant.Revision != session.GrantRevision {
+	if pairing.MachineAccess {
+		if len(grants) != 0 {
 			writeError(w, http.StatusUnauthorized, "peer grant authorization is invalid")
 			return peerAuthorizedRequest{}, false
 		}
-		if _, err := peercontrol.NormalizeScopes(grant.Scopes); err != nil {
+		if _, err := peercontrol.NormalizeScopes(pairing.Scopes); err != nil {
 			writeError(w, http.StatusUnauthorized, "peer grant authorization is invalid")
 			return peerAuthorizedRequest{}, false
 		}
-		if _, _, valid := s.loadPeerGrantedAgent(r, grant); !valid {
-			writeError(w, http.StatusUnauthorized, "peer grant authorization is invalid")
-			return peerAuthorizedRequest{}, false
+		grants = nil
+	} else {
+		for _, grant := range grants {
+			if grant.PairingID != pairing.ID || grant.Revision != session.GrantRevision {
+				writeError(w, http.StatusUnauthorized, "peer grant authorization is invalid")
+				return peerAuthorizedRequest{}, false
+			}
+			if _, err := peercontrol.NormalizeScopes(grant.Scopes); err != nil {
+				writeError(w, http.StatusUnauthorized, "peer grant authorization is invalid")
+				return peerAuthorizedRequest{}, false
+			}
+			if _, _, valid := s.loadPeerGrantedAgent(r, grant); !valid {
+				writeError(w, http.StatusUnauthorized, "peer grant authorization is invalid")
+				return peerAuthorizedRequest{}, false
+			}
 		}
 	}
 	authorized := peerAuthorizedRequest{session: session, pairing: pairing, grants: grants}
@@ -719,6 +755,16 @@ func (s *Server) authorizePeerRequest(w http.ResponseWriter, r *http.Request, de
 		}
 	}
 	if requestedAgentID == "" {
+		return authorized, true
+	}
+	if pairing.MachineAccess {
+		grant, ok := s.peerMachineAccessGrant(r, pairing, requestedAgentID, requiredScope)
+		if !ok {
+			writeError(w, http.StatusForbidden, "peer grant does not authorize this agent")
+			return peerAuthorizedRequest{}, false
+		}
+		authorized.grant = grant
+		authorized.grants = []db.RemotePeerGrant{grant}
 		return authorized, true
 	}
 	for _, grant := range grants {
@@ -750,6 +796,74 @@ func (s *Server) loadPeerGrantedAgent(r *http.Request, grant db.RemotePeerGrant)
 		return db.Project{}, db.Agent{}, false
 	}
 	return project, agent, true
+}
+
+func syntheticPeerMachineGrant(pairing db.RemotePeerPairing, projectID, agentID string) db.RemotePeerGrant {
+	scopes := append([]string{}, pairing.Scopes...)
+	return db.RemotePeerGrant{
+		PairingID:         pairing.ID,
+		ProjectID:         projectID,
+		AgentID:           agentID,
+		Scopes:            scopes,
+		PermissionModeCap: pairing.PermissionModeCap,
+		Revision:          pairing.GrantRevision,
+	}
+}
+
+func peerMachineAccessInventoryEligible(project db.Project, agent db.Agent) bool {
+	return strings.EqualFold(strings.TrimSpace(project.Status), "active") &&
+		strings.TrimSpace(project.ArchivedAt) == "" &&
+		strings.TrimSpace(agent.ArchivedAt) == "" &&
+		project.FlowMode != db.ProjectFlowModeConversation
+}
+
+func (s *Server) peerMachineAccessGrant(r *http.Request, pairing db.RemotePeerPairing, agentID string, requiredScope peercontrol.Scope) (db.RemotePeerGrant, bool) {
+	agentID = strings.TrimSpace(agentID)
+	if !pairing.MachineAccess || agentID == "" {
+		return db.RemotePeerGrant{}, false
+	}
+	agent, err := s.store.GetAgent(r.Context(), agentID)
+	if err != nil {
+		return db.RemotePeerGrant{}, false
+	}
+	workline, err := s.store.GetWorkline(r.Context(), agent.WorklineID)
+	if err != nil || strings.TrimSpace(workline.ProjectID) == "" {
+		return db.RemotePeerGrant{}, false
+	}
+	grant := syntheticPeerMachineGrant(pairing, workline.ProjectID, agent.ID)
+	if !scopeStringsContain(grant.Scopes, requiredScope) {
+		return db.RemotePeerGrant{}, false
+	}
+	project, loaded, valid := s.loadPeerGrantedAgent(r, grant)
+	if !valid || !peerMachineAccessInventoryEligible(project, loaded) {
+		return db.RemotePeerGrant{}, false
+	}
+	return grant, true
+}
+
+func (s *Server) listPeerMachineAccessGrants(r *http.Request, pairing db.RemotePeerPairing) ([]db.RemotePeerGrant, bool) {
+	conversations, err := s.store.ListNavigationConversations(r.Context())
+	if err != nil {
+		return nil, false
+	}
+	grants := make([]db.RemotePeerGrant, 0, len(conversations))
+	seen := make(map[string]struct{}, len(conversations))
+	for _, conversation := range conversations {
+		agentID := strings.TrimSpace(conversation.AgentID)
+		if agentID == "" {
+			continue
+		}
+		if _, exists := seen[agentID]; exists {
+			continue
+		}
+		seen[agentID] = struct{}{}
+		grant, ok := s.peerMachineAccessGrant(r, pairing, agentID, peercontrol.ScopeObserve)
+		if !ok {
+			continue
+		}
+		grants = append(grants, grant)
+	}
+	return grants, true
 }
 
 func (s *Server) peerRequestOrigin(r *http.Request) (string, error) {

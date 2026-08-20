@@ -135,7 +135,7 @@ func TestRemotePairingClaimApproveAndRevoke(t *testing.T) {
 		AgentID:           agent.ID,
 		Scopes:            []string{RemotePeerScopeObserve},
 		PermissionModeCap: RemotePeerPermissionModeReadOnly,
-	}})
+	}}, false, RemotePeerPermissionModeReadOnly)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +144,7 @@ func TestRemotePairingClaimApproveAndRevoke(t *testing.T) {
 	}
 	if _, _, err := store.ReplaceRemotePeerAuthorization(ctx, pairing.ID, pairing.GrantRevision, []string{RemotePeerScopeObserve}, pairing.ExpiresAt, []RemotePeerGrant{{
 		ProjectID: project.ID, AgentID: agent.ID, Scopes: []string{RemotePeerScopeSendTask}, PermissionModeCap: RemotePeerPermissionModeReadOnly,
-	}}); err == nil || !strings.Contains(err.Error(), "exceeds pairing scopes") {
+	}}, false, RemotePeerPermissionModeReadOnly); err == nil || !strings.Contains(err.Error(), "exceeds pairing scopes") {
 		t.Fatalf("grant scope wider than pairing was accepted: %v", err)
 	}
 
@@ -414,6 +414,146 @@ func TestRemotePeerGrantRejectsProjectAgentMismatch(t *testing.T) {
 	}
 	if _, err := store.GetRemotePeerPairing(ctx, pairingID); !IsNotFound(err) {
 		t.Fatalf("failed approval persisted pairing: %v", err)
+	}
+}
+
+func TestRemotePeerMachineAccessAuthorization(t *testing.T) {
+	ctx := context.Background()
+	store := openRemoteCollaborationTestStore(t, ctx)
+	defer store.Close()
+	project, _, agent, err := store.CreateProject(ctx, "First", "", t.TempDir(), "openai:test", "acceptEdits")
+	if err != nil {
+		t.Fatal(err)
+	}
+	invitation := createRemoteInvitation(t, ctx, store, "machine-access-code", time.Now().UTC().Add(time.Hour))
+	claimed, err := store.ClaimRemotePairingInvitation(ctx, invitation.ID, invitation.CodeHash, invitation.Revision, remoteTestRequester("m"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.ApproveRemotePairingInvitation(ctx, claimed.ID, claimed.Revision, RemotePeerPairing{
+		Scopes: []string{RemotePeerScopeObserve}, MachineAccess: true, PermissionModeCap: RemotePeerPermissionModeAcceptEdits,
+	}, []RemotePeerGrant{{
+		ProjectID: project.ID, AgentID: agent.ID, Scopes: []string{RemotePeerScopeObserve}, PermissionModeCap: RemotePeerPermissionModeReadOnly,
+	}}); err == nil || !strings.Contains(err.Error(), "cannot be combined") {
+		t.Fatalf("machine access with grants was accepted: %v", err)
+	}
+
+	pairing, grants, err := store.ApproveRemotePairingInvitation(ctx, claimed.ID, claimed.Revision, RemotePeerPairing{
+		Scopes: []string{RemotePeerScopeObserve, RemotePeerScopeSendTask}, MachineAccess: true, PermissionModeCap: RemotePeerPermissionModeAcceptEdits,
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !pairing.MachineAccess || pairing.PermissionModeCap != RemotePeerPermissionModeAcceptEdits || len(grants) != 0 {
+		t.Fatalf("unexpected machine-access pairing: pairing=%+v grants=%+v", pairing, grants)
+	}
+	if stored, err := store.ListRemotePeerGrants(ctx, pairing.ID); err != nil || len(stored) != 0 {
+		t.Fatalf("machine access left per-agent grants: %v %#v", err, stored)
+	}
+	ids, err := store.ListRemotePeerMachineAccessAgentIDs(ctx)
+	if err != nil || len(ids) != 1 || ids[0] != agent.ID {
+		t.Fatalf("machine access agent ids=%v err=%v want [%s]", ids, err, agent.ID)
+	}
+	var laterAgentID string
+	if _, _, extra, err := store.CreateProject(ctx, "Later", "", t.TempDir(), "openai:test", "acceptEdits"); err != nil {
+		t.Fatal(err)
+	} else {
+		laterAgentID = extra.ID
+		ids, err = store.ListRemotePeerMachineAccessAgentIDs(ctx)
+		if err != nil || len(ids) != 2 {
+			t.Fatalf("later project was not included in machine access: %v %#v extra=%s", err, ids, extra.ID)
+		}
+	}
+	if _, _, err := store.ReplaceRemotePeerGrants(ctx, pairing.ID, pairing.GrantRevision, nil); err == nil || !strings.Contains(err.Error(), "machine access") {
+		t.Fatalf("replacing grants during machine access was accepted: %v", err)
+	}
+
+	pairing, grants, err = store.ReplaceRemotePeerAuthorization(ctx, pairing.ID, pairing.GrantRevision, []string{RemotePeerScopeObserve}, "", []RemotePeerGrant{{
+		ProjectID: project.ID, AgentID: agent.ID, Scopes: []string{RemotePeerScopeObserve}, PermissionModeCap: RemotePeerPermissionModeReadOnly,
+	}}, false, RemotePeerPermissionModeReadOnly)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pairing.MachineAccess || pairing.GrantRevision != 2 || len(grants) != 1 || grants[0].AgentID != agent.ID {
+		t.Fatalf("unexpected narrowed authorization: pairing=%+v grants=%+v", pairing, grants)
+	}
+
+	pairing, grants, err = store.ReplaceRemotePeerAuthorization(ctx, pairing.ID, pairing.GrantRevision, []string{RemotePeerScopeObserve}, "", nil, true, RemotePeerPermissionModeAcceptEdits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !pairing.MachineAccess || pairing.PermissionModeCap != RemotePeerPermissionModeAcceptEdits || len(grants) != 0 {
+		t.Fatalf("unexpected restored machine access: pairing=%+v grants=%+v", pairing, grants)
+	}
+
+	archived := true
+	if _, err := store.UpdateProjectNavigationState(ctx, project.ID, nil, &archived); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, standalone, err := store.CreateStandaloneConversation(ctx, "Hidden chat", "openai:test"); err != nil {
+		t.Fatal(err)
+	} else {
+		ids, err = store.ListRemotePeerMachineAccessAgentIDs(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		foundLater := false
+		for _, id := range ids {
+			if id == agent.ID || id == standalone.ID {
+				t.Fatalf("archived or conversation-flow agent stayed in machine access: %#v", ids)
+			}
+			if id == laterAgentID {
+				foundLater = true
+			}
+		}
+		if !foundLater {
+			t.Fatalf("active later agent missing from machine access after archive: %#v", ids)
+		}
+	}
+}
+
+func TestRemotePeerPermissionCapBackfillFromGrants(t *testing.T) {
+	ctx := context.Background()
+	store := openRemoteCollaborationTestStore(t, ctx)
+	defer store.Close()
+	project, _, agent, err := store.CreateProject(ctx, "Granted", "", t.TempDir(), "openai:test", "acceptEdits")
+	if err != nil {
+		t.Fatal(err)
+	}
+	invitation := createRemoteInvitation(t, ctx, store, "cap-backfill-code", time.Now().UTC().Add(time.Hour))
+	claimed, err := store.ClaimRemotePairingInvitation(ctx, invitation.ID, invitation.CodeHash, invitation.Revision, remoteTestRequester("c"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pairing, grants, err := store.ApproveRemotePairingInvitation(ctx, claimed.ID, claimed.Revision, RemotePeerPairing{
+		Scopes: []string{RemotePeerScopeObserve}, PermissionModeCap: RemotePeerPermissionModeReadOnly,
+	}, []RemotePeerGrant{{
+		ProjectID: project.ID, AgentID: agent.ID, Scopes: []string{RemotePeerScopeObserve}, PermissionModeCap: RemotePeerPermissionModeAcceptEdits,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pairing.PermissionModeCap != RemotePeerPermissionModeReadOnly || len(grants) != 1 || grants[0].PermissionModeCap != RemotePeerPermissionModeAcceptEdits {
+		t.Fatalf("setup pairing cap=%q grants=%+v", pairing.PermissionModeCap, grants)
+	}
+
+	tx, err := store.DB().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if err := migrateV70RemotePeerPermissionCapBackfill(ctx, tx); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := store.GetRemotePeerPairing(ctx, pairing.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.PermissionModeCap != RemotePeerPermissionModeAcceptEdits {
+		t.Fatalf("backfill left pairing cap=%q", reloaded.PermissionModeCap)
 	}
 }
 

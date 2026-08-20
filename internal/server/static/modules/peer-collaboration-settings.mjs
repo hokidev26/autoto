@@ -88,6 +88,8 @@ export function normalizePeerPairing(value = {}) {
     scopes: normalizePeerScopes(pairing.scopes),
     credentialRevision: positiveInteger(pairing.credentialRevision),
     grantRevision: positiveInteger(pairing.grantRevision),
+    machineAccess: Boolean(pairing.machineAccess),
+    permissionModeCap: peerPermissionCaps.includes(textValue(pairing.permissionModeCap)) ? textValue(pairing.permissionModeCap) : "readOnly",
     expiresAt: textValue(pairing.expiresAt),
     lastSeenAt: textValue(pairing.lastSeenAt),
     pairedAt: textValue(pairing.pairedAt),
@@ -117,20 +119,44 @@ export function normalizePeerCollaboration(value = {}) {
 
 // The approve and authorization endpoints replace the whole grant set, so a
 // draft always carries every grant the pairing should keep, not a delta.
+// Pairing rows added by v69 defaulted to readOnly even when grants already
+// allowed edits. Prefer those grants unless machine access is already on.
+export function peerAuthorizationCap(pairing = {}, grants = []) {
+  const current = objectValue(pairing);
+  const list = Array.isArray(grants) ? grants : [];
+  if (Boolean(current.machineAccess)) {
+    const cap = textValue(current.permissionModeCap);
+    return peerPermissionCaps.includes(cap) ? cap : "readOnly";
+  }
+  if (list.some((grant) => grant?.permissionModeCap === "acceptEdits")) {
+    return "acceptEdits";
+  }
+  const fromGrant = list.find((grant) => peerPermissionCaps.includes(grant?.permissionModeCap))?.permissionModeCap;
+  if (fromGrant) return fromGrant;
+  const pairingCap = textValue(current.permissionModeCap);
+  return peerPermissionCaps.includes(pairingCap) ? pairingCap : "readOnly";
+}
+
 export function authorizationPayload(draft, { revisionKey, revision }) {
   const source = objectValue(draft);
   const scopes = normalizePeerScopes(source.scopes);
   const allowed = new Set(scopes);
+  const cap = peerPermissionCaps.includes(textValue(source.permissionModeCap)) ? textValue(source.permissionModeCap) : "readOnly";
+  const machineAccess = Boolean(source.machineAccess);
   const payload = {
     [revisionKey]: revision,
     scopes,
-    grants: (Array.isArray(source.grants) ? source.grants : [])
+    machineAccess,
+    permissionModeCap: cap,
+    grants: machineAccess
+      ? []
+      : (Array.isArray(source.grants) ? source.grants : [])
       .filter((grant) => textValue(grant?.agentId) && textValue(grant?.projectId))
       .map((grant) => ({
         projectId: textValue(grant.projectId),
         agentId: textValue(grant.agentId),
         scopes: normalizePeerScopes(grant.scopes).filter((scope) => allowed.has(scope)),
-        permissionModeCap: peerPermissionCaps.includes(grant.permissionModeCap) ? grant.permissionModeCap : "readOnly",
+        permissionModeCap: peerPermissionCaps.includes(grant.permissionModeCap) ? grant.permissionModeCap : cap,
       })),
   };
   const hours = Number(source.expiresInHours);
@@ -185,7 +211,7 @@ export function createPeerCollaborationSettingsController({
 
   function approvalDraft(id) {
     if (!approvalDrafts.has(id)) {
-      approvalDrafts.set(id, { scopes: ["observe"], expiresInHours: 24, grants: [], permissionModeCap: "readOnly" });
+      approvalDrafts.set(id, { scopes: ["observe"], expiresInHours: 24, grants: [], permissionModeCap: "readOnly", machineAccess: false });
     }
     return approvalDrafts.get(id);
   }
@@ -202,8 +228,9 @@ export function createPeerCollaborationSettingsController({
       authorizationDrafts.set(id, {
         scopes: current ? [...current.scopes] : ["observe"],
         expiresInHours: 0,
-        permissionModeCap: grants.find((grant) => peerPermissionCaps.includes(grant.permissionModeCap))?.permissionModeCap || "readOnly",
-        grants,
+        machineAccess: Boolean(current?.machineAccess),
+        permissionModeCap: peerAuthorizationCap(current, grants),
+        grants: current?.machineAccess ? [] : grants,
       });
     }
     return authorizationDrafts.get(id);
@@ -409,6 +436,9 @@ export function createPeerCollaborationSettingsController({
   }
 
   function renderProjectGrantPicker(kind, id, draft) {
+    if (draft.machineAccess) {
+      return `<p class="settings-card-description">${escapeHtml(rt("machineAccessActiveHint"))}</p>`;
+    }
     const projects = collectProjectGrantOptions(agentOptions);
     if (!agentOptions.length) {
       return `<p class="settings-card-description">${escapeHtml(rt("agentsUnavailable"))}</p>`;
@@ -418,7 +448,6 @@ export function createPeerCollaborationSettingsController({
     }
     const granted = new Set(draft.grants.map((grant) => grant.agentId));
     const selectedCount = projects.filter((project) => project.agents.some((agent) => granted.has(agent.agentId))).length;
-    const cap = peerPermissionCaps.includes(draft.permissionModeCap) ? draft.permissionModeCap : "readOnly";
     return `
       <div class="user-admin-project-picker peer-collaboration-project-picker" data-peer-project-picker>
         <button type="button" class="user-admin-project-trigger" data-peer-project-picker-toggle aria-expanded="false" aria-haspopup="listbox">
@@ -438,7 +467,12 @@ export function createPeerCollaborationSettingsController({
               </label>`;
           }).join("")}
         </div>
-      </div>
+      </div>`;
+  }
+
+  function renderPermissionCap(kind, id, draft) {
+    const cap = peerPermissionCaps.includes(draft.permissionModeCap) ? draft.permissionModeCap : "readOnly";
+    return `
       <label class="settings-form-field">${escapeHtml(rt("permissionModeCap"))}
         <select class="settings-field" data-peer-grant-cap-all="1" data-peer-draft-kind="${escapeAttr(kind)}" data-peer-draft-id="${escapeAttr(id)}">
           ${peerPermissionCaps.map((value) => `<option value="${escapeAttr(value)}" ${cap === value ? "selected" : ""}>${escapeHtml(rt(`cap.${value}`))}</option>`).join("")}
@@ -461,7 +495,12 @@ export function createPeerCollaborationSettingsController({
         <div class="peer-collaboration-editor-block">
           <strong>${escapeHtml(rt("grants"))}</strong>
           <p class="settings-card-description">${escapeHtml(rt("grantsHint"))}</p>
+          <label class="settings-check-row peer-collaboration-scope">
+            <input type="checkbox" data-peer-machine-access="1" data-peer-draft-kind="${escapeAttr(kind)}" data-peer-draft-id="${escapeAttr(id)}" ${draft.machineAccess ? "checked" : ""} />
+            <span><strong>${escapeHtml(rt("machineAccess"))}</strong><small>${escapeHtml(rt("machineAccessHint"))}</small></span>
+          </label>
           ${renderProjectGrantPicker(kind, id, draft)}
+          ${renderPermissionCap(kind, id, draft)}
         </div>
         <div class="settings-action-row settings-card-footer">
           <button class="settings-action-btn subtle" type="button" data-peer-action="${escapeAttr(kind === "approval" ? "close-approve" : "close-auth")}" data-peer-id="${escapeAttr(id)}">${escapeHtml(rt("cancel"))}</button>
@@ -529,7 +568,9 @@ export function createPeerCollaborationSettingsController({
     const grants = item.localRole === "controller"
       ? `<p class="settings-card-description">${escapeHtml(rt("controllerGrantsHint"))}</p>
          <div class="settings-inline-alert settings-alert" role="status">${escapeHtml(rt("controllerReadHint"))}</div>`
-      : item.grants.length
+      : item.machineAccess
+        ? `<div class="settings-inline-alert settings-alert" role="status">${escapeHtml(rt("machineAccessSummary", { cap: rt(`cap.${peerPermissionCaps.includes(item.permissionModeCap) ? item.permissionModeCap : "readOnly"}`) }))}</div>`
+        : item.grants.length
         ? `<ul class="peer-collaboration-grant-list">${item.grants.map((grant) => `<li>${escapeHtml(agentLabel(grant.agentId))} — ${escapeHtml(rt(`cap.${grant.permissionModeCap}`))}${grant.scopes.length ? ` · ${escapeHtml(grant.scopes.map(scopeLabel).join(", "))}` : ""}</li>`).join("")}</ul>`
         : `<div class="settings-inline-alert settings-alert" role="status">${escapeHtml(rt("pairingNeedsGrants"))}</div>`;
     return `
@@ -749,6 +790,14 @@ export function createPeerCollaborationSettingsController({
     }
   }
 
+  function setMachineAccess(kind, id, checked) {
+    const draft = draftFor(kind, id);
+    draft.machineAccess = Boolean(checked);
+    if (draft.machineAccess) {
+      draft.grants = [];
+    }
+  }
+
   function setDraftPermissionCap(kind, id, value) {
     const draft = draftFor(kind, id);
     const cap = peerPermissionCaps.includes(value) ? value : "readOnly";
@@ -959,6 +1008,11 @@ export function createPeerCollaborationSettingsController({
         syncProjectGrantSummary(target.closest("[data-peer-project-picker]"));
         return;
       }
+      if (kind && id && target.dataset.peerMachineAccess) {
+        setMachineAccess(kind, id, Boolean(target.checked));
+        onChange?.(state.peerCollaboration);
+        return;
+      }
       if (kind && id && target.dataset.peerGrantCapAll) {
         setDraftPermissionCap(kind, id, target.value);
         return;
@@ -1039,6 +1093,7 @@ export function createPeerCollaborationSettingsController({
   return {
     addGrant,
     setProjectGranted,
+    setMachineAccess,
     approveInvitation,
     bind,
     connectPeer,
@@ -1048,6 +1103,10 @@ export function createPeerCollaborationSettingsController({
     render,
     reviewInvitation(id) {
       openApproval = String(id || "");
+      onChange?.(state.peerCollaboration);
+    },
+    editAuthorization(id) {
+      openAuthorization = String(id || "");
       onChange?.(state.peerCollaboration);
     },
     revokePairing,

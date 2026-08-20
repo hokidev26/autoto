@@ -251,10 +251,12 @@ type remoteInvitationTransitionRequest struct {
 }
 
 type approveRemoteCollaborationInvitationRequest struct {
-	Revision  int64                `json:"revision"`
-	Scopes    []string             `json:"scopes"`
-	ExpiresAt string               `json:"expiresAt,omitempty"`
-	Grants    []db.RemotePeerGrant `json:"grants"`
+	Revision          int64                `json:"revision"`
+	Scopes            []string             `json:"scopes"`
+	ExpiresAt         string               `json:"expiresAt,omitempty"`
+	Grants            []db.RemotePeerGrant `json:"grants"`
+	MachineAccess     bool                 `json:"machineAccess"`
+	PermissionModeCap string               `json:"permissionModeCap"`
 }
 
 func (s *Server) approveRemoteCollaborationInvitation(w http.ResponseWriter, r *http.Request) {
@@ -271,13 +273,13 @@ func (s *Server) approveRemoteCollaborationInvitation(w http.ResponseWriter, r *
 	previouslyActive, _ := s.store.ListRemotePeerPairings(r.Context(), db.RemotePeerPairingListOptions{LocalRole: db.RemotePeerLocalRoleHost, Status: db.RemotePeerPairingStatusActive, Limit: 200})
 	if err := s.recordRequiredPeerAudit(r.Context(), audit.Event{
 		Category: "peer", Action: "pairing.approve", Actor: "local-api", SubjectType: "peer_invitation", SubjectID: invitationID,
-		Outcome: "success", Risk: "critical", Details: map[string]any{"revision": request.Revision, "grantCount": len(request.Grants), "scopes": request.Scopes},
+		Outcome: "success", Risk: "critical", Details: map[string]any{"revision": request.Revision, "grantCount": len(request.Grants), "scopes": request.Scopes, "machineAccess": request.MachineAccess},
 	}); err != nil {
 		writeError(w, http.StatusInternalServerError, "pairing was not approved because audit persistence failed")
 		return
 	}
 	pairing, grants, err := s.store.ApproveRemotePairingInvitation(r.Context(), invitationID, request.Revision, db.RemotePeerPairing{
-		ID: invitationID, Scopes: request.Scopes, ExpiresAt: request.ExpiresAt,
+		ID: invitationID, Scopes: request.Scopes, ExpiresAt: request.ExpiresAt, MachineAccess: request.MachineAccess, PermissionModeCap: request.PermissionModeCap,
 	}, request.Grants)
 	if err != nil {
 		s.writeStoreError(w, r, err)
@@ -355,10 +357,12 @@ func (s *Server) transitionRemoteCollaborationInvitation(w http.ResponseWriter, 
 }
 
 type replaceRemoteCollaborationAuthorizationRequest struct {
-	GrantRevision int64                `json:"grantRevision"`
-	Scopes        []string             `json:"scopes"`
-	ExpiresAt     string               `json:"expiresAt,omitempty"`
-	Grants        []db.RemotePeerGrant `json:"grants"`
+	GrantRevision     int64                `json:"grantRevision"`
+	Scopes            []string             `json:"scopes"`
+	ExpiresAt         string               `json:"expiresAt,omitempty"`
+	Grants            []db.RemotePeerGrant `json:"grants"`
+	MachineAccess     bool                 `json:"machineAccess"`
+	PermissionModeCap string               `json:"permissionModeCap"`
 }
 
 func (s *Server) replaceRemoteCollaborationAuthorization(w http.ResponseWriter, r *http.Request) {
@@ -374,12 +378,12 @@ func (s *Server) replaceRemoteCollaborationAuthorization(w http.ResponseWriter, 
 	pairingID := chi.URLParam(r, "id")
 	if err := s.recordRequiredPeerAudit(r.Context(), audit.Event{
 		Category: "peer", Action: "pairing.authorization_update", Actor: "local-api", SubjectType: "peer_pairing", SubjectID: pairingID,
-		Outcome: "success", Risk: "critical", Details: map[string]any{"grantRevision": request.GrantRevision, "grantCount": len(request.Grants), "scopes": request.Scopes},
+		Outcome: "success", Risk: "critical", Details: map[string]any{"grantRevision": request.GrantRevision, "grantCount": len(request.Grants), "scopes": request.Scopes, "machineAccess": request.MachineAccess},
 	}); err != nil {
 		writeError(w, http.StatusInternalServerError, "authorization was not changed because audit persistence failed")
 		return
 	}
-	pairing, grants, err := s.store.ReplaceRemotePeerAuthorization(r.Context(), pairingID, request.GrantRevision, request.Scopes, request.ExpiresAt, request.Grants)
+	pairing, grants, err := s.store.ReplaceRemotePeerAuthorization(r.Context(), pairingID, request.GrantRevision, request.Scopes, request.ExpiresAt, request.Grants, request.MachineAccess, request.PermissionModeCap)
 	if err != nil {
 		s.writeStoreError(w, r, err)
 		return

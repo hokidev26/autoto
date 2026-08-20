@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 )
 
-const CurrentDBVersion = 68
+const CurrentDBVersion = 70
 
 type migration struct {
 	version int
@@ -87,6 +87,8 @@ var migrations = []migration{
 	{version: 66, name: "guest access keys", up: migrateV66GuestAccessKeys},
 	{version: 67, name: "agent plan reflection", up: migrateV67AgentPlanReflection},
 	{version: 68, name: "agent summary model", up: migrateV68AgentSummaryModel},
+	{version: 69, name: "remote peer machine access", up: migrateV69RemotePeerMachineAccess},
+	{version: 70, name: "remote peer permission cap backfill", up: migrateV70RemotePeerPermissionCapBackfill},
 }
 
 // migrateV62SubagentBypassCap admits bypassPermissions as a run/task ceiling.
@@ -1766,6 +1768,40 @@ func migrateV68AgentSummaryModel(ctx context.Context, tx *sql.Tx) error {
 	// NULL/empty inherits the host Agent.SummaryModel so collaborators can
 	// retarget one granted conversation without writing host settings.
 	return ensureColumn(ctx, tx, "agents", "summary_model", "TEXT")
+}
+
+// migrateV69RemotePeerMachineAccess lets a host pairing authorize every current
+// and later project on this instance. Existing pairings stay per-project
+// (machine_access=0); the inbound peer APIs still re-read the pairing on each
+// request rather than trusting a client assertion.
+func migrateV69RemotePeerMachineAccess(ctx context.Context, tx *sql.Tx) error {
+	if err := ensureColumn(ctx, tx, "remote_peer_pairings", "machine_access", "INTEGER NOT NULL DEFAULT 0 CHECK (machine_access IN (0, 1))"); err != nil {
+		return err
+	}
+	return ensureColumn(ctx, tx, "remote_peer_pairings", "permission_mode_cap", "TEXT NOT NULL DEFAULT 'readOnly' CHECK (permission_mode_cap IN ('readOnly', 'acceptEdits'))")
+}
+
+// migrateV70RemotePeerPermissionCapBackfill copies acceptEdits off existing
+// per-agent grants onto the pairing row. v69 defaulted the new column to
+// readOnly, so opening the editor and turning on machine access would otherwise
+// drop a pairing that already allowed edits.
+func migrateV70RemotePeerPermissionCapBackfill(ctx context.Context, tx *sql.Tx) error {
+	pairingsExist, err := tableExists(ctx, tx, "remote_peer_pairings")
+	if err != nil || !pairingsExist {
+		return err
+	}
+	grantsExist, err := tableExists(ctx, tx, "remote_peer_grants")
+	if err != nil || !grantsExist {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `
+UPDATE remote_peer_pairings
+SET permission_mode_cap = 'acceptEdits'
+WHERE permission_mode_cap = 'readOnly'
+  AND id IN (
+    SELECT pairing_id FROM remote_peer_grants WHERE permission_mode_cap = 'acceptEdits'
+  )`)
+	return err
 }
 
 func migrateV66GuestAccessKeys(ctx context.Context, tx *sql.Tx) error {

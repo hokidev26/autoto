@@ -8,6 +8,7 @@ import {
   createPeerCollaborationSettingsController,
   normalizePeerCollaboration,
   normalizePeerScopes,
+  peerAuthorizationCap,
 } from "./peer-collaboration-settings.mjs";
 
 const hostFingerprint = "a".repeat(64);
@@ -151,6 +152,8 @@ test("an authorization payload clamps grant scopes to the pairing scopes", () =>
   assert.deepEqual(payload, {
     grantRevision: 4,
     scopes: ["observe", "execute_tools"],
+    machineAccess: false,
+    permissionModeCap: "readOnly",
     grants: [
       { projectId: "project-1", agentId: "agent-1", scopes: ["observe"], permissionModeCap: "acceptEdits" },
       { projectId: "project-1", agentId: "agent-2", scopes: ["execute_tools"], permissionModeCap: "readOnly" },
@@ -164,6 +167,24 @@ test("an authorization payload only carries an expiry when hours are positive", 
   const expiresAt = Date.parse(payload.expiresAt);
   assert.ok(Number.isFinite(expiresAt));
   assert.ok(expiresAt > Date.now());
+});
+
+test("a machine-access payload drops per-agent grants and keeps the pairing cap", () => {
+  const payload = authorizationPayload({
+    scopes: ["observe", "send_task"],
+    machineAccess: true,
+    permissionModeCap: "acceptEdits",
+    grants: [
+      { projectId: "project-1", agentId: "agent-1", scopes: ["observe"], permissionModeCap: "readOnly" },
+    ],
+  }, { revisionKey: "grantRevision", revision: 4 });
+  assert.deepEqual(payload, {
+    grantRevision: 4,
+    scopes: ["observe", "send_task"],
+    machineAccess: true,
+    permissionModeCap: "acceptEdits",
+    grants: [],
+  });
 });
 
 test("agent options come from navigation, deduplicated and without archived or project-less rows", () => {
@@ -235,6 +256,7 @@ test("the authorization editor grants whole projects instead of adding agents on
   assert.match(html, /data-peer-project-grant="project-1"/);
   assert.match(html, /data-peer-project-grant="project-2"/);
   assert.match(html, /data-peer-grant-cap-all/);
+  assert.match(html, /data-peer-machine-access="1"/);
   assert.doesNotMatch(html, /data-peer-add-grant/);
   assert.doesNotMatch(html, /data-peer-grant-scope/);
   assert.doesNotMatch(html, /data-peer-project-picker-toggle[^>]*tabindex="-1"/);
@@ -286,6 +308,58 @@ test("editing authorization replaces the whole grant set against the grant revis
   assert.deepEqual(save.body.grants, [
     { projectId: "project-1", agentId: "agent-1", scopes: ["observe"], permissionModeCap: "readOnly" },
   ]);
+  assert.equal(save.body.machineAccess, false);
+});
+
+test("machine access hides the project picker and sends an empty grant set", async () => {
+  const harness = createHarness({
+    status: statusPayload({ pairings: [hostPairing()] }),
+    responses: { "/api/remote-collaboration/pairings/pairing-1/authorization": () => hostPairing({ machineAccess: true, permissionModeCap: "acceptEdits" }) },
+  });
+  await harness.controller.load();
+  harness.controller.editAuthorization("pairing-1");
+  harness.controller.setMachineAccess("authorization", "pairing-1", true);
+  const html = harness.controller.render();
+  assert.match(html, /data-peer-machine-access="1"[^>]*checked/);
+  assert.doesNotMatch(html, /data-peer-project-grant=/);
+  await harness.controller.saveAuthorization("pairing-1");
+  const save = harness.requests.find((entry) => entry.path.endsWith("/authorization"));
+  assert.equal(save.body.machineAccess, true);
+  assert.equal(save.body.permissionModeCap, "readOnly");
+  assert.deepEqual(save.body.grants, []);
+});
+
+test("turning on machine access keeps acceptEdits from existing grants", async () => {
+  const record = hostPairing({ permissionModeCap: "readOnly" });
+  record.grants = [{ ...record.grants[0], permissionModeCap: "acceptEdits" }];
+  const harness = createHarness({
+    status: statusPayload({ pairings: [record] }),
+    responses: { "/api/remote-collaboration/pairings/pairing-1/authorization": () => hostPairing({ machineAccess: true, permissionModeCap: "acceptEdits" }) },
+  });
+  await harness.controller.load();
+  harness.controller.editAuthorization("pairing-1");
+  harness.controller.setMachineAccess("authorization", "pairing-1", true);
+  await harness.controller.saveAuthorization("pairing-1");
+  const save = harness.requests.find((entry) => entry.path.endsWith("/authorization"));
+  assert.equal(save.body.machineAccess, true);
+  assert.equal(save.body.permissionModeCap, "acceptEdits");
+  assert.deepEqual(save.body.grants, []);
+});
+
+test("peerAuthorizationCap prefers grant acceptEdits unless machine access is already on", () => {
+  assert.equal(peerAuthorizationCap({ permissionModeCap: "readOnly" }, [{ permissionModeCap: "acceptEdits" }]), "acceptEdits");
+  assert.equal(peerAuthorizationCap({ machineAccess: true, permissionModeCap: "readOnly" }, [{ permissionModeCap: "acceptEdits" }]), "readOnly");
+  assert.equal(peerAuthorizationCap({ machineAccess: true, permissionModeCap: "acceptEdits" }, []), "acceptEdits");
+  assert.equal(peerAuthorizationCap({}, []), "readOnly");
+});
+
+test("an existing machine-access pairing summarizes the whole-machine grant", async () => {
+  const harness = createHarness({
+    status: statusPayload({ pairings: [hostPairing({ machineAccess: true, permissionModeCap: "acceptEdits" })] }),
+  });
+  await harness.controller.load();
+  const html = harness.controller.render();
+  assert.match(html, /整机权限|整機權限|Whole-machine access/);
 });
 
 test("revoking a pairing sends the credential revision that invalidates peer tokens", async () => {

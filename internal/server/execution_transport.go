@@ -56,8 +56,12 @@ func (s *Server) peerExecutionHeartbeat(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, "peer execution heartbeat failed")
 		return
 	}
-	agentIDs := peerExecutionAgentIDs(authorized)
+	agentIDs, err := s.peerExecutionAgentIDs(r, authorized)
 	queued := 0
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "peer execution heartbeat failed")
+		return
+	}
 	if len(agentIDs) > 0 {
 		queued, err = s.store.CountQueuedRemoteExecutionTasks(r.Context(), device.ID, agentIDs)
 		if err != nil {
@@ -85,7 +89,11 @@ func (s *Server) peerExecutionClaim(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	agentIDs := peerExecutionAgentIDs(authorized)
+	agentIDs, err := s.peerExecutionAgentIDs(r, authorized)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "peer execution claim failed")
+		return
+	}
 	if len(agentIDs) == 0 {
 		writeError(w, http.StatusForbidden, "peer grant does not authorize execution for any agent")
 		return
@@ -120,7 +128,7 @@ func (s *Server) peerExecutionClaim(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "peer execution claim failed")
 		return
 	}
-	grant, granted := peerExecutionGrantForAgent(authorized, task.AgentID)
+	grant, granted := s.peerExecutionGrantForAgent(r, authorized, task.AgentID)
 	if !granted {
 		s.releasePeerExecutionLease(r, task, "grant_missing")
 		writeError(w, http.StatusForbidden, "peer grant does not authorize this agent")
@@ -206,7 +214,7 @@ func (s *Server) peerExecutionReport(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "peer does not hold the lease for this task")
 		return
 	}
-	if _, granted := peerExecutionGrantForAgent(authorized, task.AgentID); !granted {
+	if _, granted := s.peerExecutionGrantForAgent(r, authorized, task.AgentID); !granted {
 		writeError(w, http.StatusForbidden, "peer grant does not authorize this agent")
 		return
 	}
@@ -310,8 +318,15 @@ func (s *Server) releasePeerExecutionLease(r *http.Request, task db.RemoteExecut
 
 // peerExecutionAgentIDs lists the agents this session may execute for. Grants
 // from an older revision are ignored rather than tolerated, so re-authorizing a
-// pairing narrows what an already-issued bearer can claim.
-func peerExecutionAgentIDs(authorized peerAuthorizedRequest) []string {
+// pairing narrows what an already-issued bearer can claim. Machine access is
+// expanded from the live host inventory at request time.
+func (s *Server) peerExecutionAgentIDs(r *http.Request, authorized peerAuthorizedRequest) ([]string, error) {
+	if authorized.pairing.MachineAccess {
+		if !scopeStringsContain(authorized.pairing.Scopes, peercontrol.ScopeExecuteTools) {
+			return nil, nil
+		}
+		return s.store.ListRemotePeerMachineAccessAgentIDs(r.Context())
+	}
 	agentIDs := make([]string, 0, len(authorized.grants))
 	for _, grant := range authorized.grants {
 		if grant.Revision != authorized.session.GrantRevision || !scopeStringsContain(grant.Scopes, peercontrol.ScopeExecuteTools) {
@@ -321,13 +336,16 @@ func peerExecutionAgentIDs(authorized peerAuthorizedRequest) []string {
 			agentIDs = append(agentIDs, agentID)
 		}
 	}
-	return agentIDs
+	return agentIDs, nil
 }
 
-func peerExecutionGrantForAgent(authorized peerAuthorizedRequest, agentID string) (db.RemotePeerGrant, bool) {
+func (s *Server) peerExecutionGrantForAgent(r *http.Request, authorized peerAuthorizedRequest, agentID string) (db.RemotePeerGrant, bool) {
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {
 		return db.RemotePeerGrant{}, false
+	}
+	if authorized.pairing.MachineAccess {
+		return s.peerMachineAccessGrant(r, authorized.pairing, agentID, peercontrol.ScopeExecuteTools)
 	}
 	for _, grant := range authorized.grants {
 		if grant.AgentID != agentID || grant.Revision != authorized.session.GrantRevision {
