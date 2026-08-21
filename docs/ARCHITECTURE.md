@@ -1,6 +1,6 @@
 # Autoto Architecture Guide
 
-This guide is a contributor-facing map of how a request flows through the local Autoto service. The Go module is `autoto`. There are two entrypoints: `cmd/autoto` is the canonical CLI/server entrypoint (it starts the local service and opens the browser UI via `app.Run`), and `cmd/autoto-desktop` is the optional desktop entrypoint (a Wails WebView shell behind the `desktop` build tag). There is no separate legacy shim binary. For operational security boundaries, see `SECURITY.md`.
+This guide is a contributor-facing map of how a request flows through the local Autoto service. The Go module is `autoto`. There are two entrypoints: `cmd/autoto` is the canonical CLI/server entrypoint (it starts the local service and opens the browser UI via `app.Run`), and `cmd/autoto-desktop` is the optional desktop entrypoint (a Wails WebView shell behind the `desktop` build tag). There is no separate legacy shim binary. For operational security boundaries, see [`../SECURITY.md`](../SECURITY.md).
 
 ## High-level shape
 
@@ -221,7 +221,7 @@ The roadmap target remains either incremental ES modules without a build step or
 
 ## Consistency and concurrency rules
 
-Cross-cutting implementations should follow the contributor invariants in `CONTRIBUTING.md`:
+Cross-cutting implementations should follow the contributor invariants in [`CONTRIBUTING.md`](CONTRIBUTING.md):
 
 - Derive hashes, scanner verdicts, acknowledgements, and other security conclusions on the trusted server side.
 - Encode state transitions as compare-and-swap writes with expected states or versions and checked `RowsAffected` values.

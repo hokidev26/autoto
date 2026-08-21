@@ -86,7 +86,7 @@ Protected-task text, status, protection flag, order, replacement, or deletion ar
 ## Architecture and engineering invariants
 
 - `cmd/autoto` is the CLI entrypoint and `cmd/autoto-desktop` is an optional local Wails client. Respect boundaries in `internal/config`, `db`, `agent`, `providers`, `tools`, `background`, `review`, and `server`.
-- Read `docs/ARCHITECTURE.md` for cross-cutting work, `SECURITY.md` for security changes, and `CONTRIBUTING.md` for engineering rules.
+- Read `docs/ARCHITECTURE.md` for cross-cutting work, `SECURITY.md` for security changes, and `docs/CONTRIBUTING.md` for engineering rules.
 - State transitions use compare-and-swap with expected state/revision/generation and checked `RowsAffected`; never read-check-unconditional-write.
 - Use only the transaction handle inside a transaction. Publish success or start dependent async work only after commit.
 - Schema changes require migrations, existing-database compatibility, and upgrade/restart/conflict/failure tests.
