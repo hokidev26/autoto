@@ -1,8 +1,10 @@
 # Autoto Changelog
 
-All notable changes to Autoto are tracked here. The project is still an experimental local-first MVP, so entries focus on user-visible behavior, security boundaries, and contributor-facing workflow changes.
+All notable changes to Autoto are tracked here. Entries focus on user-visible behavior, security boundaries, and contributor-facing workflow changes.
 
-## Unreleased
+## v1.0.0 - 2026-08-22
+
+First tagged 1.0.0 release. The `v0.1.0`–`v0.2.2` tags were preview cuts. This ships the previously written first-public-release baseline together with the work that had been sitting under Unreleased.
 
 ### Added
 
@@ -16,6 +18,9 @@ All notable changes to Autoto are tracked here. The project is still an experime
 
 ### Changed
 
+- The open conversation in the sidebar is a filled capsule. An open chat inside a project no longer lets the folder steal the “you are here” highlight, including in the phone drawer.
+- The phone composer keeps a single live-status line on the task summary instead of repeating the same step on the status chip.
+- Tool-activity truncation copy now says the output is too long and only part is shown.
 - Settings → Remote access now shows the named tunnel hostname under a labeled current-address row, including while the tunnel is idle. The live address stays a link with QR; the idle address is copyable but not presented as reachable until start. Remote collaboration still uses the live public URL for invitations.
 - Local accounts now have four roles. Existing collaborators (`role=user`) keep today's powers as **operators**. A new **collaborator** role can only work in granted projects, cannot create projects, and cannot open host settings. Administrators can see every project.
 - Signing out now shows a dedicated login screen instead of a translucent overlay on top of the last conversation.
@@ -56,6 +61,8 @@ All notable changes to Autoto are tracked here. The project is still an experime
 
 ### Fixed
 
+- Clicking a project’s `+` no longer starts a drag that swallows the create-chat click.
+- Finished tool-activity cards no longer keep the live-output class on input and output blocks.
 - Revoking a remote pairing or turning sharing off no longer signed the local operator out. A dead peer credential on the owner API is now a 409, not a 401 that the UI treated as an expired Autoto account session.
 - Reconnecting the same Autoto devices no longer fails with a generic conflict. A repeat claim from the same identity is idempotent, and a new invitation from that peer replaces the previous active pairing.
 - Dragging the outer window narrower with background tasks (or files / spec / preview / conversation details) open keeps that panel as a shrinking docked column. It previously jumped to a right-edge overlay below 1280px. The desktop window can shrink to 768px, matching that layout split.
@@ -98,9 +105,9 @@ All notable changes to Autoto are tracked here. The project is still an experime
 - A phone tap no longer flashes a blue focus ring around the composer chips. Desktop mouse clicks were already free of it; keyboard focus on a wider window is unchanged.
 - On a phone, thinking strength shows the English initial of the selected level (A, L, M, H, …) instead of the three-bar meter, in the same ink as the rest of the composer text, and the permission shield is drawn at the same optical size as its neighbours.
 
-## v1.0.0 - 2026-08-14
+### First-public-release baseline
 
-First public release of Autoto. The project is an experimental local-first MVP focused on a single-machine coding agent that runs in the background, asks before doing risky things, and only commits the files the user picks.
+The following items were written up as the first public-release baseline on 2026-08-14 and are included in this tagged v1.0.0. The project is a local-first coding agent that runs in the background, asks before doing risky things, and only commits the files the user picks.
 
 ### Branding and compatibility
 

@@ -744,19 +744,41 @@ body.white-shell.theme-light .navigation-project-row > .navigation-row-fork[aria
 
 /* Phones have no hover, so the folder "+" would stay pointer-events:none
    forever and every tap would expand the project instead. Keep it visible
-   and hittable there; desktop still reveals it on hover. */
+   and hittable there; desktop still reveals it on hover. The conversation
+   "+" shares the trailing time cell on desktop — unstack the two on phones
+   so "open another chat" is not hidden behind the relative time. */
 @media (hover: none) {
-  .navigation-project-row > .navigation-row-fork {
+  .navigation-project-row > .navigation-row-fork,
+  .navigation-conversation-trailing .navigation-row-fork {
     opacity: 1;
   }
 
-  body.white-shell.theme-light .navigation-project-row > .navigation-row-fork {
+  body.white-shell.theme-light .navigation-project-row > .navigation-row-fork,
+  body.white-shell.theme-light .navigation-conversation-trailing .navigation-row-fork {
+    pointer-events: auto;
+  }
+
+  body.white-shell.theme-light .navigation-conversation-trailing {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  body.white-shell.theme-light .navigation-conversation-trailing > * {
+    grid-area: auto;
+  }
+
+  body.white-shell.theme-light .navigation-conversation-row:is(:hover, :focus-within) .navigation-conversation-trailing:has(.navigation-row-fork) .navigation-conversation-time {
+    opacity: 1;
     pointer-events: auto;
   }
 }
 
 @media (pointer: coarse) {
-  .navigation-project-row > .navigation-row-fork {
+  .navigation-project-row > .navigation-row-fork,
+  .navigation-conversation-trailing .navigation-row-fork {
     min-width: 32px;
     min-height: 32px;
     padding: 6px 4px;
@@ -787,7 +809,7 @@ body.white-shell.theme-light .navigation-conversation-time {
 }
 
 body.white-shell.theme-light .navigation-conversation-row.active .navigation-conversation-time {
-  color: var(--ws-muted);
+  color: color-mix(in srgb, var(--ws-primary, #4f6ef7) 70%, var(--ws-muted, #6b7280));
 }
 
 body.white-shell.theme-light .navigation-empty-conversations {
@@ -861,10 +883,10 @@ body.white-shell.theme-light .navigation-project-group > .project-card.navigatio
 }
 
 body.white-shell.theme-light .navigation-conversation-row.nested.active {
-  border-color: color-mix(in srgb, var(--ws-primary) 42%, var(--ws-border));
-  background: var(--ws-primary-soft, #eef1ff);
-  color: var(--ws-primary);
-  box-shadow: inset 2px 0 0 var(--ws-primary);
+  border-color: color-mix(in srgb, var(--ws-primary, #4f6ef7) 28%, var(--ws-border, #e5e7eb));
+  background: color-mix(in srgb, var(--ws-primary, #4f6ef7) 16%, var(--ws-card, #fff));
+  color: var(--ws-primary, #4f6ef7);
+  box-shadow: none;
 }
 
 /* A collapsed folder is the only on-screen stand-in for the open chat inside it. */
@@ -1248,6 +1270,58 @@ body.white-shell.theme-light .message-editing .message-correction-text {
     opacity: 1;
     pointer-events: auto;
   }
+
+  /* Phones keep copy and time visible. Sit them on the last line of the
+     reply — short answers share that line, long ones keep the controls at
+     the bottom-right of the text — so they neither overlay the first
+     sentence nor open a blank strip under it. */
+  body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="assistant"]:not([class~="live-assistant-message"]) {
+    display: flex;
+    flex-flow: row wrap;
+    align-items: flex-end;
+    align-self: start;
+    justify-content: flex-start;
+    column-gap: 8px;
+    row-gap: 2px;
+    height: max-content;
+    min-height: 0;
+    padding: 2px 0 0;
+  }
+
+  body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="assistant"]:not([class~="live-assistant-message"]) .message-content {
+    flex: 1 1 auto;
+    min-width: min(100%, 12ch);
+    max-width: calc(100% - 72px);
+  }
+
+  body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="assistant"]:not([class~="live-assistant-message"]) .message-head {
+    position: static;
+    top: auto;
+    right: auto;
+    z-index: auto;
+    display: flex;
+    flex: 0 0 auto;
+    width: auto;
+    align-self: flex-end;
+    min-height: 22px;
+    margin: 0;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 6px;
+    order: 1;
+  }
+
+  body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="assistant"]:not([class~="live-assistant-message"]) :is(.message-performance, .message-attachments, .generated-image-grid) {
+    flex: 1 1 100%;
+    order: 2;
+  }
+
+  /* The next turn's step strip should sit against this reply, not after a
+     second helping of row-gap on top of the meta row. */
+  body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="assistant"]:not([class~="live-assistant-message"]) + [class~="message-tool-activity"],
+  body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="assistant"]:not([class~="live-assistant-message"]) + [class~="live-tool-output-stack"] {
+    margin-top: calc(-1 * var(--transcript-row-gap, 8px) + 2px);
+  }
 }
 
 body.white-shell.theme-light .messages:not(.empty) > [class~="message"] .message-content {
@@ -1523,19 +1597,24 @@ body.white-shell.theme-light .messages [class~="plan-card-actions"] > button {
 
   body.white-shell.theme-light .messages:not(.empty) {
     grid-template-columns: minmax(0, 100%);
-    --transcript-row-gap: 8px;
+    --transcript-row-gap: 6px;
     row-gap: var(--transcript-row-gap);
   }
 
   body.white-shell.theme-light .messages:not(.empty) > [class~="message"] {
     max-width: 100%;
-    padding: 10px 11px;
+    padding: 4px 0;
     font-size: 15px;
     line-height: 1.5;
   }
 
   body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="user"] {
     max-width: 100%;
+    padding: 9px 10px;
+  }
+
+  body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="assistant"] {
+    padding: 2px 0 0;
   }
 
   body.white-shell.theme-light .messages:not(.empty) > [class~="live-tool-output-stack"],

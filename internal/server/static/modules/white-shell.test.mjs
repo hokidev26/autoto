@@ -1019,6 +1019,11 @@ test("desktop conversation layout follows the compact resizable geometry", async
   assert.match(styles, /body\.white-shell\.theme-light \.navigation-conversation-row\.nested\.unread[\s\S]*?\.navigation-conversation-title\s*\{[\s\S]*?color:\s*#22c55e/);
   assert.match(styles, /body\.white-shell\.theme-light \.navigation-conversation-row\.nested \.navigation-agent-icon\s*\{[\s\S]*?display:\s*none/);
   assert.match(styles, /body\.white-shell\.theme-light \.navigation-conversation-row\.nested\s*\{[\s\S]*?padding:\s*1px 7px 1px 28px/);
+  // Current chat must be a filled capsule, not only blue title text.
+  assert.match(styles, /navigation-conversation-row\.active[\s\S]*?background:\s*color-mix\(in srgb, var\(--ws-primary, #4f6ef7\) 16%/);
+  assert.match(styles, /navigation-conversation-row\.active[\s\S]*?box-shadow:\s*none/);
+  assert.doesNotMatch(styles, /navigation-conversation-row(?:\.nested)?\.active[\s\S]{0,240}box-shadow:\s*inset 3px/);
+  assert.match(styles, /navigation-conversation-row\.nested\.active[\s\S]*?background:\s*color-mix\(in srgb, var\(--ws-primary, #4f6ef7\) 16%/);
   assert.match(styles, /body\.white-shell\.theme-light \.messages:not\(\.empty\)\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\)[\s\S]*?grid-auto-rows:\s*max-content[\s\S]*?justify-content:\s*start[\s\S]*?row-gap:\s*8px[\s\S]*?padding:\s*12px 8px 12px/);
   assert.match(styles, /body\.white-shell\.theme-light \.project-list::-webkit-scrollbar\s*\{[\s\S]*?width:\s*6px/);
   assert.match(styles, /body\.white-shell\.theme-light \.messages::-webkit-scrollbar\s*\{[\s\S]*?width:\s*6px/);
@@ -1034,6 +1039,12 @@ test("desktop conversation layout follows the compact resizable geometry", async
   assert.match(styles, /\[class~="message"\]\[class~="user"\]\[class~="chat-flow-left"\]\[class~="message-editing"\]\s*\{[^}]*justify-self:\s*stretch[^}]*width:\s*100%[^}]*max-width:\s*100%[^}]*background:\s*var\(--ws-card\)/);
   assert.match(styles, /\[class~="message"\]:not\(\[class~="live-assistant-message"\]\) \.message-head\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) auto max-content/);
   assert.match(styles, /\[class~="message"\]:not\(\[class~="live-assistant-message"\]\) \.message-time\s*\{[^}]*grid-column:\s*3[^}]*justify-self:\s*end/);
+  // Touch keeps copy and time visible, so they cannot overlay the reply.
+  assert.match(styles, /@media \(hover: none\) \{[\s\S]*?\[class~="assistant"\]:not\(\[class~="live-assistant-message"\]\) \.message-head \{[\s\S]*?position:\s*static/);
+  assert.match(styles, /@media \(hover: none\) \{[\s\S]*?\[class~="assistant"\]:not\(\[class~="live-assistant-message"\]\) \{[\s\S]*?flex-flow:\s*row wrap/);
+  assert.match(styles, /@media \(hover: none\) \{[\s\S]*?\[class~="assistant"\]:not\(\[class~="live-assistant-message"\]\) \.message-head \{[\s\S]*?order:\s*1/);
+  assert.match(styles, /@media \(hover: none\) \{[\s\S]*?\[class~="assistant"\]:not\(\[class~="live-assistant-message"\]\) \.message-content \{[\s\S]*?max-width:\s*calc\(100% - 72px\)/);
+  assert.match(styles, /@media \(hover: none\) \{[\s\S]*?\[class~="assistant"\]:not\(\[class~="live-assistant-message"\]\) \+ \[class~="message-tool-activity"\]/);
   assert.match(styles, /\.message-editing \.message-correction-text\s*\{[\s\S]*?border-radius:\s*7px[\s\S]*?background:\s*var\(--ws-input\)/);
   assert.match(styles, /body\.white-shell\.theme-light \.messages:not\(\.empty\) > \[class~="run-summary-card"\]\s*\{[\s\S]*?justify-self:\s*stretch[\s\S]*?width:\s*100%/);
   assert.match(styles, /@media \(max-width:\s*767px\)\s*\{[\s\S]*?body\.white-shell\.theme-light \.messages \[class~="run-summary-card"\]\s*\{[^}]*display:\s*none/);
@@ -1102,10 +1113,12 @@ test("desktop conversation layout follows the compact resizable geometry", async
   assert.match(styles, /\.tool-activity-summary \.disclosure-chevron \{[\s\S]*?order:\s*2;[\s\S]*?margin-inline-start:\s*auto/);
   assert.match(styles, /@media \(hover: hover\) \{[\s\S]*?\.tool-activity-summary \.disclosure-chevron,[\s\S]*?\.tool-activity-step-button \.disclosure-chevron \{ opacity: 0; \}/);
   assert.match(styles, /\.tool-activity-summary:is\(:hover, :focus-visible\) \.disclosure-chevron,[\s\S]*?\.tool-activity-step-button:is\(:hover, :focus-visible\) \.disclosure-chevron/);
-  assert.match(styles, /@media \(hover: none\) \{\s*\.navigation-project-row > \.navigation-row-fork \{\s*opacity:\s*1/);
-  assert.match(styles, /@media \(hover: none\) \{[\s\S]*?body\.white-shell\.theme-light \.navigation-project-row > \.navigation-row-fork \{\s*pointer-events:\s*auto/);
-  assert.match(styles, /@media \(pointer: coarse\) \{\s*\.navigation-project-row > \.navigation-row-fork \{\s*min-width:\s*32px/);
+  assert.match(styles, /@media \(hover: none\) \{\s*\.navigation-project-row > \.navigation-row-fork,\s*\.navigation-conversation-trailing \.navigation-row-fork \{\s*opacity:\s*1/);
+  assert.match(styles, /@media \(hover: none\) \{[\s\S]*?body\.white-shell\.theme-light \.navigation-conversation-trailing \.navigation-row-fork \{\s*pointer-events:\s*auto/);
+  assert.match(styles, /@media \(hover: none\) \{[\s\S]*?\.navigation-conversation-trailing \{\s*display:\s*inline-flex/);
+  assert.match(styles, /@media \(pointer: coarse\) \{\s*\.navigation-project-row > \.navigation-row-fork,\s*\.navigation-conversation-trailing \.navigation-row-fork \{\s*min-width:\s*32px/);
   assert.match(appMain, /querySelectorAll\("\[data-project-fork-trigger\]"\)[\s\S]*?addEventListener\("mousedown"/);
+  assert.match(appMain, /querySelectorAll\("\[data-workline-conversation-trigger\]"\)[\s\S]*?addEventListener\("mousedown"/);
   assert.match(styles, /\.plan-card-head \.disclosure-chevron/);
   assert.match(styles, /body\.white-shell\.theme-light \.plan-card-feedback textarea\s*\{[\s\S]*?background:\s*var\(--ws-input\)/);
   assert.doesNotMatch(styles, /\.plan-card-feedback textarea \{[^}]*rgba\(17, 19, 24/);
@@ -1348,10 +1361,10 @@ test("composer task activity is borderless, left aligned, and spins blue while a
   assert.match(backgroundTasks, /bypassPermissionsAllowed/);
   assert.match(appMain, /bypassPermissionsAllowed:\s*\(\) => fullAccessAllowed\(state\)/);
   // Phones used to null the summary, which left "no running task" through a
-  // whole turn. The summary now always receives the step; the composer pill is
-  // the mobile fallback so the words are not only in a 28px icon.
+  // whole turn. The summary now always receives the step. Copying the same
+  // words onto the composer pill stacked two "思考中" labels on phones.
   assert.match(agentWorkspaceHelpers, /canRouteToSummary[\s\S]*?backgroundTasks\.setForegroundActivity\(activity\)/);
-  assert.match(agentWorkspaceHelpers, /composerActivity = \(!canRouteToSummary \|\| isMobileAppViewport\?\.\(\)\) \? activity : null/);
+  assert.match(agentWorkspaceHelpers, /composerActivity = canRouteToSummary \? null : activity/);
   assert.doesNotMatch(agentWorkspaceHelpers, /setForegroundActivity\?\.\(null\)/);
   assert.doesNotMatch(agentWorkspaceHelpers, /routeActivityToTaskSummary = Boolean\(projectOperationContextActive/);
   // Blocked on a child is a distinct state, and it has to survive as far as the dot.
@@ -2309,6 +2322,8 @@ test("mobile shell skips home and keeps the drawer, settings index, and model sh
   assert.match(refreshedStyles, /:is\(\.permission-safety-indicator, \.permission-risk-badge, \.toolbar-lightning-btn\)/);
   assert.match(refreshedStyles, /\.composer-status:not\(\.is-busy\)/);
   assert.match(refreshedStyles, /\.composer-status\.is-busy\s*\{[^}]*display:\s*inline-flex !important/);
+  assert.match(refreshedStyles, /composer-toolbar:has\(\.composer-task-summary\.has-foreground-activity:not\(:disabled\)\) \.composer-status/);
+  assert.match(refreshedStyles, /composer-toolbar:has\(\.composer-task-summary\.has-task:not\(:disabled\)\) \.composer-status[\s\S]*?display:\s*none !important/);
   assert.match(refreshedStyles, /\.mobile-select-sheet-backdrop\s*\{[\s\S]*?align-items:\s*flex-end[\s\S]*?justify-content:\s*flex-end/);
   assert.match(styles, /body:not\(\.guest-observe\) \.guest-observe-banner/);
   assert.doesNotMatch(styles, /body\.collaborator-limited \.guest-observe-banner:not\(\.hidden\)/);

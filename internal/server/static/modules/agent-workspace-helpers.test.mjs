@@ -234,7 +234,7 @@ test("composer activity prefers pending approval, then tools, then thinking/gene
   );
 });
 
-test("desktop conversations use the task summary and only mobile keeps the composer fallback", () => {
+test("the task summary owns the activity text on every viewport", () => {
   const previousDocument = globalThis.document;
   const classes = () => {
     const values = new Set();
@@ -293,7 +293,9 @@ test("desktop conversations use the task summary and only mobile keeps the compo
     mobileViewport = true;
     helpers.refreshComposerActivityStatus();
     assert.deepEqual(routed[1], { kind: "thinking", text: "思考中" });
-    assert.equal(label.textContent, "思考中");
+    // Phones used to copy the same words onto this pill, which stacked two
+    // "思考中" labels plus the live step on the composer row.
+    assert.notEqual(label.textContent, "思考中");
     assert.equal(wrapper.classList.contains("is-busy"), true);
     assert.equal(wrapper.dataset.activityTone, "thinking");
 
@@ -355,7 +357,7 @@ test("mobile composer status carries retrying so the label can stay amber", () =
       isMobileAppViewport: () => true,
     });
     helpers.refreshComposerActivityStatus();
-    assert.equal(label.textContent, "重试中 9/11");
+    assert.notEqual(label.textContent, "重试中 9/11");
     assert.equal(wrapper.dataset.activityTone, "retrying");
     assert.equal(wrapper.classList.contains("is-busy"), true);
   } finally {

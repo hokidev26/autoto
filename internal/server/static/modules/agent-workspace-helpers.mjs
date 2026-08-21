@@ -328,7 +328,11 @@ export function createAgentWorkspaceHelpers({
     }
     const canRouteToSummary = Boolean(backgroundTasks?.setForegroundActivity);
     if (canRouteToSummary) backgroundTasks.setForegroundActivity(activity);
-    const composerActivity = (!canRouteToSummary || isMobileAppViewport?.()) ? activity : null;
+    // The summary is the only status line. Phones used to copy the same words
+    // onto .composer-status while the summary was a 28px icon; both chips are
+    // visible now, so that fallback stacked "思考中" twice and listed the live
+    // step beside it.
+    const composerActivity = canRouteToSummary ? null : activity;
     const text = composerActivity?.text || lastConnectionStatus.text || t("chat.idle");
     // Handing the activity to the task summary must not let this pill claim the
     // workspace is idle. Both sit on the same toolbar, so a grey "idle" dot

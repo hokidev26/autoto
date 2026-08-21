@@ -211,9 +211,11 @@
     font-weight: 500;
   }
   body.white-shell.theme-light .navigation-conversation-row.active {
-    background: var(--ws-primary-soft, #eef1ff);
+    border-color: color-mix(in srgb, var(--ws-primary, #4f6ef7) 28%, var(--ws-border, #e5e7eb));
+    background: color-mix(in srgb, var(--ws-primary, #4f6ef7) 16%, var(--ws-card, #fff));
+    box-shadow: none;
   }
-  body.white-shell.theme-light .navigation-conversation-row.active .navigation-conversation-title { color: #4f6ef7; }
+  body.white-shell.theme-light .navigation-conversation-row.active .navigation-conversation-title { color: var(--ws-primary, #4f6ef7); font-weight: 650; }
   body.white-shell.theme-light .recent-sidebar { display: none; }
 
   body.white-shell.theme-light .chat-header {
@@ -1270,10 +1272,17 @@ body.white-shell.theme-light.theme-dark .composer-field-label {
 }
 
 body.white-shell.theme-light.theme-dark .project-kind-badge,
-body.white-shell.theme-light.theme-dark .project-card.active,
-body.white-shell.theme-light.theme-dark .navigation-conversation-row.active {
+body.white-shell.theme-light.theme-dark .project-card.active {
   background: var(--ws-primary-soft);
   color: var(--ws-primary);
+}
+
+body.white-shell.theme-light.theme-dark .navigation-conversation-row.active,
+body.white-shell.theme-light.theme-dark .navigation-conversation-row.nested.active {
+  border-color: color-mix(in srgb, var(--ws-primary, #9caeff) 36%, var(--ws-border, #3a4a5f));
+  background: color-mix(in srgb, var(--ws-primary, #9caeff) 22%, var(--ws-card, #1e2938));
+  color: var(--ws-primary, #9caeff);
+  box-shadow: none;
 }
 
 body.white-shell.theme-light.theme-dark .project-card.active .project-kind-badge {

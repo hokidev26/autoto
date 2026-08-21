@@ -23,10 +23,10 @@
 ## Go 工具鏈位置
 
 如果 Go **不在 PATH 裡**（例如手動解壓安裝到自訂目錄），Git Bash 裡
-每個會話先加進 PATH（把路徑換成你的安裝位置）：
+每個會話先加進 PATH。本倉上一層若放了 `gotool`，可用：
 
 ```bash
-export PATH="$PATH:/c/path/to/go/bin"
+export PATH="$PATH:$(cd .. && pwd)/gotool/go/bin"
 go version   # 應輸出 go1.26.x windows/amd64
 ```
 

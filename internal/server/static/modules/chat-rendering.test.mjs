@@ -1945,6 +1945,10 @@ test("the inline detail repeats nothing the row above it already says", () => {
   assert.match(inline, /tool-activity-inline-card/);
   assert.match(inline, /tool-activity-details is-inline/);
   assert.doesNotMatch(inline, /<details class="tool-activity-details"/);
+  // The legacy live-output class painted the result as a black terminal
+  // beside a light input box. Both blocks share tool-activity-output now.
+  assert.doesNotMatch(inline, /live-tool-output-body/);
+  assert.match(inline, /<pre class="tool-activity-output">/);
   // The full card keeps its head for surfaces without a row above it.
   const full = renderToolActivityCardHTML(call, { detailsExpanded: true });
   assert.match(full, /tool-activity-head/);
@@ -4931,6 +4935,18 @@ test("transcript components fold against the column width, not the window", asyn
   assert.match(css, /@container chat-transcript \(max-width: 760px\) \{\s*@media \(pointer: coarse\) \{\s*\.tool-activity-stack/);
   assert.match(css, /@container chat-transcript \(max-width: 760px\) \{\s*body\.white-shell\.theme-light \.messages:not\(\.empty\)/);
   assert.match(css, /@container chat-transcript \(max-width: 760px\) \{\s*@media \(pointer: coarse\) \{\s*\.subagent-task-card/);
+  // Phone rows stay one line: the chevron keeps its column, and long
+  // commands ellipsis instead of wrapping the list to a wall of text.
+  assert.match(css, /@media \(pointer: coarse\) \{[\s\S]*?\.tool-activity-step-button \{ grid-template-columns: 18px minmax\(0, 1fr\) 13px;/);
+  assert.match(css, /@media \(pointer: coarse\) \{[\s\S]*?\.tool-activity-step-copy \{ flex-wrap: nowrap; \}/);
+  assert.doesNotMatch(css, /\.tool-activity-step-copy > strong, \.tool-activity-step-target \{ white-space: normal/);
+
+  const inlineDetail = css.match(/\.tool-activity-inline-detail:not\(:empty\)\s*\{[^}]*\}/)?.[0] || "";
+  assert.match(inlineDetail, /border-left:\s*0/, "expanded detail must not keep the timeline rail");
+  assert.doesNotMatch(inlineDetail, /border-left:\s*1px/);
+  assert.match(css, /\.tool-activity-card\.tool-activity-inline-card[\s\S]*?border-radius:\s*10px/);
+  assert.match(css, /\.tool-activity-inline-card \.tool-activity-command,[\s\S]*?\.tool-activity-inline-card \.tool-activity-output \{[\s\S]*?background:\s*transparent/);
+  assert.match(css, /body\.white-shell\.theme-light:not\(\.theme-dark\) \.tool-activity-inline-card \.tool-activity-command,[\s\S]*?background:\s*#111827/);
 
   // And no viewport query may reintroduce them: that regresses the docked case.
   assert.doesNotMatch(css, /@media \(max-width: 760px\) \{[^}]*\.tool-activity-stack/);

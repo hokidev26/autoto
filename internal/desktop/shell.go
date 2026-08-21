@@ -216,10 +216,10 @@ func runWailsShell(ctx context.Context, rt *app.Runtime, url string, logger *slo
 	attachDeepLinkHandlers(wailsApp, lifeHost, logger)
 
 	window := wailsApp.Window.NewWithOptions(application.WebviewWindowOptions{
-		Name:      "main",
-		Title:     "Autoto",
-		Width:     width,
-		Height:    height,
+		Name:   "main",
+		Title:  "Autoto",
+		Width:  width,
+		Height: height,
 		// 768 matches the CSS phone/desktop split: a docked utility panel can shrink
 		// with the outer window instead of jumping to an overlay at 1280px.
 		MinWidth:  768,

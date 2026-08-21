@@ -3759,6 +3759,11 @@ function renderProjects() {
     });
   });
   el.querySelectorAll("[data-workline-conversation-trigger]").forEach((node) => {
+    node.addEventListener("mousedown", (event) => {
+      // Same as the project-row "+": the conversation row is draggable, so a
+      // press would start a drag and swallow the click that creates the chat.
+      event.stopPropagation();
+    });
     node.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();

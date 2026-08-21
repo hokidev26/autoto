@@ -21,7 +21,7 @@ import (
 //	-ldflags "-X autoto/internal/config.Version=..."
 //
 // Keep this a package-level var (not const) so the Go linker can rewrite it.
-var Version = "0.1.0-dev"
+var Version = "1.0.0-dev"
 
 // Commit is the short git commit hash of the build. Empty in local/dev builds;
 // release builds inject it with:
@@ -180,12 +180,12 @@ type ProviderConfig struct {
 	// minutes — typically approval-gated background tasks — because an expired
 	// cache re-writes the whole conversation prefix at full price. Unknown
 	// values fall back to "5m".
-	CacheTTL              string                  `json:"cacheTTL,omitempty"`
-	APIKeyOptional        bool                    `json:"apiKeyOptional,omitempty"`
-	ImageInput            bool                    `json:"imageInput,omitempty"`
-	GatewayEnabled        bool                    `json:"gatewayEnabled,omitempty"`
-	ProxyURL              string                  `json:"proxyUrl,omitempty"`
-	UserAgent             string                  `json:"userAgent,omitempty"`
+	CacheTTL       string `json:"cacheTTL,omitempty"`
+	APIKeyOptional bool   `json:"apiKeyOptional,omitempty"`
+	ImageInput     bool   `json:"imageInput,omitempty"`
+	GatewayEnabled bool   `json:"gatewayEnabled,omitempty"`
+	ProxyURL       string `json:"proxyUrl,omitempty"`
+	UserAgent      string `json:"userAgent,omitempty"`
 	// ClientIdentity optionally prepends a short official-CLI identity sentence
 	// to this provider's system prompt. Empty (default) keeps Autoto's own
 	// identity. Allowed values: "claude-code", "codex". It is per-provider, does

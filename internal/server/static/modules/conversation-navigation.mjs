@@ -773,7 +773,13 @@ function navigationProjectHeadline(conversations, activeAgentId) {
 }
 
 function renderProject(project, activeProjectId, options = {}) {
-  const active = options.activeSelectionKind !== "conversation" && project.id === activeProjectId;
+  // Folder highlight is for project-scope selection when the open chat is
+  // not drawn as its own row. selectNavigationConversation keeps
+  // selectionKind "project" so composer chrome stays in project context;
+  // that flag must not steal the "you are here" capsule from the chat.
+  const active = options.activeSelectionKind !== "conversation"
+    && project.id === activeProjectId
+    && options.conversationCurrent !== true;
   const path = project.gitPath || project.id;
   const displayPath = compactDisplayPath(path);
   // Visible label is the folder name. A stored name that is actually the working
@@ -812,8 +818,11 @@ function renderProject(project, activeProjectId, options = {}) {
 }
 
 function renderConversation(conversation, activeAgentId, nested = false, options = {}) {
-  const active = options.activeSelectionKind !== "project" && conversation.agentId === activeAgentId;
   const taskContext = options.taskContext === true;
+  // The open chat is current whenever its agent id matches. Do not gate this
+  // on activeSelectionKind: that flag owns workspace chrome (terminal,
+  // permissions), and selectNavigationConversation leaves it as "project".
+  const active = !taskContext && Boolean(activeAgentId) && conversation.agentId === activeAgentId;
   const nestedFork = options.nestedFork === true;
   const statusClass = navigationAgentStatusClass(conversation.agentStatus);
   // The row a reader is currently looking at is read by definition, so it must
@@ -948,6 +957,7 @@ export function renderNavigationHTML(view = {}, options = {}) {
       <section class="navigation-project-group" draggable="true" data-navigation-project-group="${escapeNavigationHtml(group.project.id)}" data-conversation-count="${escapeNavigationHtml(String(group.conversations.length))}" data-navigation-context="project">
         ${renderProject(group.project, activeProjectId, {
           activeSelectionKind,
+          conversationCurrent: Boolean(activeAgentId) && group.conversations.some((item) => item.agentId === activeAgentId),
           agentStatus: projectStatus,
           // Only while collapsed: an expanded group shows the unread row itself.
           unread: !groupOpen && aggregateNavigationUnread(group.conversations, seenMap, activeAgentId),

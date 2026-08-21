@@ -339,8 +339,8 @@ test("project groups contain every conversation once and preserve recent orderin
   assert.match(html, /navigation-conversation-row nested active/);
   assert.doesNotMatch(html, /navigation-project-row active/);
   const projectContextHTML = renderNavigationHTML(all, { activeProjectId: "p1", activeAgentId: "a2", activeSelectionKind: "project" });
-  assert.match(projectContextHTML, /navigation-project-row active/);
-  assert.doesNotMatch(projectContextHTML, /navigation-conversation-row nested active/);
+  assert.match(projectContextHTML, /navigation-conversation-row nested active/);
+  assert.doesNotMatch(projectContextHTML, /navigation-project-row active/);
   assert.match(projectContextHTML, /data-navigation-context="project"/);
   // Folder name stays on the group row. Conversation titles live on the nested
   // rows, matching the Cursor-style tree the sidebar is aiming for.

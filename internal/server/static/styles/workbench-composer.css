@@ -533,8 +533,11 @@ body.white-shell.theme-light .composer-status.is-busy .composer-status-bars {
     font-size: 11px;
   }
 
-  body.white-shell.theme-light .composer-toolbar:has(.composer-task-summary.has-task) .composer-status.is-busy {
-    display: inline-flex;
+  /* The summary already names the live step. Showing this pill next to it
+     stacked a second "思考中" and the current verbs on the same row. */
+  body.white-shell.theme-light .composer-toolbar:has(.composer-task-summary.has-foreground-activity:not(:disabled)) .composer-status,
+  body.white-shell.theme-light .composer-toolbar:has(.composer-task-summary.has-task:not(:disabled)) .composer-status {
+    display: none;
   }
 }
 

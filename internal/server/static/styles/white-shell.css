@@ -360,11 +360,18 @@ body.white-shell.theme-light .nav-item.selected,
 body.white-shell.theme-light .nav-item-shell.selected,
 body.white-shell.theme-light .nav-item-shell.selected .nav-item-main,
 body.white-shell.theme-light .project-card.active,
-body.white-shell.theme-light .navigation-conversation-row.active,
 body.white-shell.theme-light .recent-conversation-item.active {
   border-color: transparent;
   background: var(--ws-primary-soft);
   color: var(--ws-primary);
+  box-shadow: none;
+}
+
+body.white-shell.theme-light .navigation-conversation-row.active,
+body.white-shell.theme-light .recent-conversation-item.active {
+  border-color: color-mix(in srgb, var(--ws-primary, #4f6ef7) 28%, var(--ws-border, #e5e7eb));
+  background: color-mix(in srgb, var(--ws-primary, #4f6ef7) 16%, var(--ws-card, #fff));
+  color: var(--ws-primary, #4f6ef7);
   box-shadow: none;
 }
 
@@ -479,16 +486,13 @@ body.white-shell.theme-light .navigation-conversation-row.fork-conversation {
 /* Which conversation you are in has to survive a sidebar full of near-identical
    rows: forks of one workline differ only by a branch name in the meta line, and
    the soft tint alone sat too close to both the hover fill and the project row
-   above it. An accent bar and a weighted title read as "you are here" at a glance
-   without shouting. Built from --ws-primary so the cyber and cream presets, which
-   redefine it, stay coherent instead of turning blue here. */
-body.white-shell.theme-light .navigation-conversation-row.active {
-  box-shadow: inset 2px 0 0 0 var(--ws-primary, #4f6ef7);
-}
-
+   above it. A filled capsule and weighted title read as "you are
+   here" at a glance. Built from --ws-primary so the cyber and cream presets,
+   which redefine it, stay coherent instead of turning blue here. */
 body.white-shell.theme-light .navigation-conversation-row.active .navigation-conversation-title,
 body.white-shell.theme-light .navigation-conversation-row.active .navigation-title-text {
-  font-weight: 600;
+  color: var(--ws-primary, #4f6ef7);
+  font-weight: 650;
 }
 
 body.white-shell.theme-light .navigation-conversation-row.fork-conversation .navigation-agent-icon {

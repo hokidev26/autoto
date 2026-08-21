@@ -65,7 +65,7 @@ func logLevelFromEnv(value string) slog.Level {
 	}
 }
 
-// Run is the canonical process entry for cmd/autoto and the legacy shim.
+// Run is the canonical process entry for cmd/autoto.
 // Desktop shells should prefer NewRuntime + Start + Close so they can own the
 // window lifecycle without process signals.
 func Run(options Options) int {

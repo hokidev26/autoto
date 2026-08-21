@@ -950,15 +950,19 @@ func TestGitStatusRouteAllowsRepoUnderDefaultProjectDir(t *testing.T) {
 
 func TestGitStatusRouteRejectsNonGitRepo(t *testing.T) {
 	ctx := context.Background()
-	store, agent := newGitRouteStore(t, ctx, t.TempDir())
+	root := t.TempDir()
+	store, agent := newGitRouteStore(t, ctx, root)
 	defer store.Close()
 
 	app := New(config.Config{}, store, nil, nil)
 	recorder := httptest.NewRecorder()
 	request := newTestRequest(http.MethodGet, "/api/agents/"+agent.ID+"/git/status", nil)
 	app.Routes().ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusConflict {
-		t.Fatalf("expected 409, got %d: %s", recorder.Code, recorder.Body.String())
+	// 409: the folder itself is not a repository.
+	// 403: git walked into a parent repo (for example a home-directory .git
+	// above %TEMP%) that sits outside the project boundary.
+	if recorder.Code != http.StatusConflict && recorder.Code != http.StatusForbidden {
+		t.Fatalf("expected 409 or 403, got %d: %s", recorder.Code, recorder.Body.String())
 	}
 }
 

@@ -1,6 +1,6 @@
 # Contributing to Autoto
 
-Thanks for your interest in Autoto. The project is an early local-first Go MVP, so small focused changes are preferred.
+Thanks for your interest in Autoto. The project is a local-first Go coding-agent server, so small focused changes are preferred.
 
 ## Development setup
 
@@ -16,13 +16,13 @@ Open:
 http://localhost:16888
 ```
 
-The Go module is `autoto`. `cmd/autoto` is retained only as a legacy command shim; use `cmd/autoto` for development, tests, examples, and new automation.
+The Go module is `autoto`. Use `cmd/autoto` for development, tests, examples, and new automation. `cmd/autoto-desktop` is the optional native window shell.
 
 ## Project layout
 
 ```text
-cmd/autoto            Canonical application entrypoint
-cmd/autoto        Legacy compatibility command shim
+cmd/autoto            Canonical CLI/server entrypoint
+cmd/autoto-desktop    Optional native desktop shell
 internal/config       Defaults, config migration, and config loading
 internal/db           SQLite schema and persistence
 internal/agent        Agent runner and event hub

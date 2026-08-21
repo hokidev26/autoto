@@ -54,17 +54,33 @@ test("沒有選取任何對話時不會有 aria-current", () => {
   assert.doesNotMatch(render(""), /aria-current="true"/);
 });
 
+test("project 操作上下文仍把開啟中的對話列標成目前位置", () => {
+  const html = renderNavigationHTML(buildNavigationView(payload, { mode: "all" }), {
+    activeProjectId: "p1",
+    activeAgentId: "a2",
+    activeSelectionKind: "project",
+  });
+  assert.match(html, /data-navigation-id="a2"[^>]*aria-current="true"|aria-current="true"[^>]*data-navigation-id="a2"/);
+  assert.doesNotMatch(html, /navigation-project-row[^"]*active/);
+  const source = readFileSync(new URL("./conversation-navigation.mjs", import.meta.url), "utf8");
+  assert.doesNotMatch(
+    source,
+    /const active = options\.activeSelectionKind !== "project" && conversation\.agentId === activeAgentId/,
+    "selectionKind 管的是工作區 chrome，不能再擋住對話列的目前標記",
+  );
+});
+
 // The accent must come from the theme variable: the cyber and cream presets
 // redefine --ws-primary, and a hardcoded blue would clash there.
 test("active 列的視覺標記取自主題變數", () => {
   const styles = readFileSync(new URL("../styles/white-shell.css", import.meta.url), "utf8");
   assert.match(
     styles,
-    /body\.white-shell\.theme-light \.navigation-conversation-row\.active \{[\s\S]*?box-shadow:\s*inset 2px 0 0 0 var\(--ws-primary/,
+    /body\.white-shell\.theme-light \.navigation-conversation-row\.active[\s\S]*?box-shadow:\s*none/,
   );
   assert.match(
     styles,
-    /body\.white-shell\.theme-light \.navigation-conversation-row\.active \.navigation-title-text \{[\s\S]*?font-weight:\s*600/,
+    /body\.white-shell\.theme-light \.navigation-conversation-row\.active \.navigation-title-text \{[\s\S]*?font-weight:\s*650/,
   );
 });
 

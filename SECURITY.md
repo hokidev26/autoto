@@ -1,6 +1,6 @@
 # Autoto Security Policy
 
-Autoto is an experimental local-first MVP for trusted local development environments. Do not expose it directly to untrusted networks. The canonical executable is `./autoto` (built from `cmd/autoto`); `autoto-desktop` is the optional desktop shell. There is no legacy shim binary.
+Autoto is a local-first coding-agent server for trusted local development environments. Do not expose it directly to untrusted networks. The canonical executable is `./autoto` (built from `cmd/autoto`); `autoto-desktop` is the optional desktop shell. There is no legacy shim binary.
 
 ## Reporting a vulnerability
 

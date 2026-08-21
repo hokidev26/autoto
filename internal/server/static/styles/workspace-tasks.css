@@ -1227,9 +1227,9 @@ body.white-shell.theme-light.theme-dark .navigation-boundary-empty button {
 .tool-activity-inline-detail:empty { display: none; }
 
 .tool-activity-inline-detail:not(:empty) {
-  margin: 2px 0 8px 28px;
-  padding-left: 10px;
-  border-left: 1px solid var(--tool-activity-border);
+  margin: 4px 0 10px;
+  padding: 0;
+  border-left: 0;
 }
 
 /* A row in a list, not a card in a stack. The border and shadow separated each
@@ -1263,15 +1263,20 @@ body.white-shell.theme-light.theme-dark .navigation-boundary-empty button {
   border-radius: 7px;
 }
 
-/* Inline detail already sits under the selected row with a left rule. Boxing
-   it again made a second card around the same content. */
-.tool-activity-inline-card,
-.tool-activity-inline-card:hover,
-.tool-activity-inline-card:has(> .tool-activity-details),
-.tool-activity-inline-card:has(> details[open]) {
-  background: transparent;
-  border: 0;
-  border-radius: 0;
+/* One quiet panel under the row. A left rail plus nested input/output
+   boxes made the expanded step look like two different cards. Status
+   colour stays on the row above, not as a second stripe on this panel. */
+.tool-activity-card.tool-activity-inline-card,
+.tool-activity-card.tool-activity-inline-card:hover,
+.tool-activity-card.tool-activity-inline-card:has(> .tool-activity-details),
+.tool-activity-card.tool-activity-inline-card:has(> details[open]),
+.tool-activity-card.tool-activity-inline-card.status-running,
+.tool-activity-card.tool-activity-inline-card.status-completed,
+.tool-activity-card.tool-activity-inline-card.status-error,
+.tool-activity-card.tool-activity-inline-card.status-warn {
+  background: var(--tool-activity-surface-subtle);
+  border: 1px solid color-mix(in srgb, var(--tool-activity-border) 86%, transparent);
+  border-radius: 10px;
 }
 
 /* One tool call should read as one line. A 54px card with a 30px icon meant
@@ -1593,12 +1598,12 @@ body.white-shell.theme-light.theme-dark .navigation-boundary-empty button {
 .tool-activity-details.is-inline {
   border-top: 0;
   background: transparent;
-  padding: 2px 0 0;
+  padding: 0;
 }
 
 .tool-activity-details.is-inline > :not(summary),
 .tool-activity-details.is-inline > * {
-  margin: 0 0 4px;
+  margin: 0;
 }
 
 .tool-activity-truncated,
@@ -1634,9 +1639,58 @@ body.white-shell.theme-light.theme-dark .navigation-boundary-empty button {
 /* Inline detail variant: the row button above already names the tool, its
    target and its status, so the card keeps only the meta line and the detail
    sections. */
-.tool-activity-inline-card { display: grid; min-width: 0; }
-.tool-activity-inline-card > .tool-activity-inline-meta { display: grid; gap: 4px; padding: 8px 11px 0; }
+.tool-activity-inline-card { display: grid; min-width: 0; overflow: hidden; }
+.tool-activity-inline-card > .tool-activity-inline-meta { display: grid; gap: 4px; padding: 8px 12px 0; }
 .tool-activity-inline-card > .tool-activity-inline-meta .tool-activity-meta { justify-content: flex-start; white-space: normal; }
+
+.tool-activity-inline-card .tool-activity-details.is-inline > * {
+  padding: 9px 12px 10px;
+}
+
+.tool-activity-inline-card .tool-activity-details.is-inline > * + * {
+  border-top: 1px solid color-mix(in srgb, var(--tool-activity-border) 78%, transparent);
+}
+
+.tool-activity-inline-card .tool-activity-block { gap: 5px; }
+
+.tool-activity-inline-card .tool-activity-block-bar > .tool-activity-meta {
+  color: var(--tool-activity-faint);
+  font-size: 10px;
+  font-weight: 720;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.tool-activity-inline-card .tool-activity-command,
+.tool-activity-inline-card .tool-activity-output {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+}
+
+/* Light chrome, dark wells: command and log text read better on a terminal
+   surface than on the page background. Dark appearance already uses a dark
+   stack, so this only applies while the shell is light. */
+body.white-shell.theme-light:not(.theme-dark) .tool-activity-inline-card .tool-activity-command,
+body.white-shell.theme-light:not(.theme-dark) .tool-activity-inline-card .tool-activity-output {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #111827;
+}
+
+body.white-shell.theme-light:not(.theme-dark) .tool-activity-inline-card .tool-activity-command {
+  color: #bfdbfe;
+}
+
+body.white-shell.theme-light:not(.theme-dark) .tool-activity-inline-card .tool-activity-output {
+  color: #e5e7eb;
+}
+
+.tool-activity-inline-card .tool-activity-truncated {
+  color: var(--tool-activity-faint);
+  font-size: 11px;
+}
 
 /* Input/output block: a label-and-actions bar above the capped <pre>. */
 .tool-activity-block { display: grid; gap: 4px; min-width: 0; }
@@ -1812,13 +1866,16 @@ body.white-shell.theme-light.theme-dark .tool-activity-stack {
    (they truncate gracefully). */
 @container chat-transcript (max-width: 760px) {
   @media (pointer: coarse) {
-    .tool-activity-stack { width: 100%; gap: 8px; margin: 8px 0 14px; }
+    .tool-activity-stack { width: 100%; gap: 8px; margin: 2px 0 6px; }
     .tool-activity-group { padding-left: 0; }
-    /* Larger tap target: 44px min-height, bigger padding, readable font */
-    .tool-activity-step-button { grid-template-columns: 18px minmax(0, 1fr); gap: 8px; padding: 10px 8px; min-height: 44px; }
-    .tool-activity-step-copy { display: flex; flex-wrap: wrap; gap: 4px 8px; }
+    /* Keep the chevron column. Dropping it wrapped the glyph onto its own
+       line, so every row became two lines before anyone opened a step.
+       Long commands stay on one line and ellipsis; the expanded detail
+       below is where the full text belongs. */
+    .tool-activity-step-button { grid-template-columns: 18px minmax(0, 1fr) 13px; gap: 8px; padding: 8px 6px; min-height: 44px; }
+    .tool-activity-step-copy { flex-wrap: nowrap; }
     .tool-activity-step-verb { font-size: 12px; }
-    .tool-activity-step-copy > strong, .tool-activity-step-target { white-space: normal; overflow-wrap: anywhere; font-size: 13px; }
+    .tool-activity-step-copy > strong, .tool-activity-step-target { font-size: 13px; }
     .tool-activity-step-status { font-size: 12px; }
     .tool-activity-step-icon { width: 18px; height: 18px; }
     .tool-activity-step-icon > svg { width: 15px; height: 15px; }
@@ -1828,7 +1885,7 @@ body.white-shell.theme-light.theme-dark .tool-activity-stack {
     .tool-activity-target { white-space: normal; }
     .tool-activity-status { min-height: 25px; }
     .tool-activity-details > summary { min-height: 44px; }
-    .tool-activity-command, .tool-activity-output { max-height: 190px; font-size: 13px; }
+    .tool-activity-command, .tool-activity-output { max-height: 160px; font-size: 13px; }
     .tool-diff { max-height: 260px; border-radius: 0; border-right: 0; border-left: 0; }
     .tool-diff-line { min-width: max-content; }
     .tool-diff-line-number { min-width: 4em; padding: 0 6px; }

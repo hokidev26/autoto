@@ -42,7 +42,7 @@ func (s *userStore) HasUsers(ctx context.Context) (bool, error) {
 }
 
 // CanonicalHandle makes handle comparisons stable across Unicode compatibility
-// forms and case variants. This is account identity for the local MVP, not a
+// forms and case variants. This is account identity for the local instance, not a
 // project membership or OS-level tenancy boundary.
 func CanonicalHandle(handle string) (string, string, error) {
 	handle = norm.NFKC.String(handle)

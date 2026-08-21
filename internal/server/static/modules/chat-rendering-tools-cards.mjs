@@ -595,7 +595,7 @@ export function streamedInputBlockHTML(tool) {
             <div class="tool-activity-meta">${escapeHtml(streamedInputLabel(tool.inputPreviewField))}</div>
             ${toolActivityBlockControlsHTML(preview)}
           </div>
-          <pre class="tool-activity-output live-tool-output-body" data-tool-input-preview>${escapeHtml(preview)}</pre>
+          <pre class="tool-activity-output" data-tool-input-preview>${escapeHtml(preview)}</pre>
         </div>`;
 }
 
@@ -642,7 +642,7 @@ function renderGenericToolActivityCardHTML(item = {}, options = {}) {
   const cardLabel = [toolActivityDisplayName(tool), target, toolActivityStatusLabel(status)].filter(Boolean).join(" · ");
   const icon = toolActivityIconHTML(toolActivityDisplayName(tool), "tool-activity-icon");
   const inputBlock = renderToolActivityBodyBlock("tool-activity-command", cr("activity.input"), input);
-  const outputBlock = renderToolActivityBodyBlock("tool-activity-output live-tool-output-body", cr("activity.output"), output);
+  const outputBlock = renderToolActivityBodyBlock("tool-activity-output", cr("activity.output"), output);
   const emptyBlock = inputBlock || outputBlock || diffHTML || streamed
     ? ""
     : `<div class="tool-activity-empty is-compact">${escapeHtml(cr("activity.noInput"))}</div>`;

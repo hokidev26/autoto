@@ -22,7 +22,7 @@ func TestClientVersionRejectsNonSemverBuildStamps(t *testing.T) {
 		}
 	}
 
-	accepted := []string{"0.1.0-dev", "1.2.3", "0.0.1", "1.2.3-rc.1", "1.2.3+build.5", ""}
+	accepted := []string{"1.0.0-dev", "0.1.0-dev", "1.2.3", "0.0.1", "1.2.3-rc.1", "1.2.3+build.5", ""}
 	for _, value := range accepted {
 		if err := validateClientVersion(value); err != nil {
 			t.Errorf("validateClientVersion(%q) rejected a valid version: %v", value, err)
@@ -55,7 +55,7 @@ func TestClientVersionFromBuildStamp(t *testing.T) {
 			t.Errorf("ClientVersionFromBuildStamp(%q) = %q, want empty", stamp, got)
 		}
 	}
-	for _, stamp := range []string{"0.1.0-dev", "1.2.3", "1.2.3-rc.1"} {
+	for _, stamp := range []string{"1.0.0-dev", "0.1.0-dev", "1.2.3", "1.2.3-rc.1"} {
 		if got := ClientVersionFromBuildStamp(stamp); got != stamp {
 			t.Errorf("ClientVersionFromBuildStamp(%q) = %q, want unchanged", stamp, got)
 		}

@@ -4,6 +4,32 @@ body.white-shell.theme-light .composer-wrap {
   container-type: inline-size;
 }
 
+/* Current conversation: a filled capsule. The older primary-soft tint
+   sat too close to hover and to the project folder. */
+body.white-shell.theme-light .navigation-conversation-row.active,
+body.white-shell.theme-light .navigation-conversation-row.nested.active,
+body.white-shell.theme-light .recent-conversation-item.active {
+  border-color: color-mix(in srgb, var(--ws-primary, #4f6ef7) 28%, var(--ws-border, #e5e7eb));
+  background: color-mix(in srgb, var(--ws-primary, #4f6ef7) 16%, var(--ws-card, #fff));
+  color: var(--ws-primary, #4f6ef7);
+  box-shadow: none;
+}
+
+body.white-shell.theme-light .navigation-conversation-row.active .navigation-conversation-title,
+body.white-shell.theme-light .navigation-conversation-row.active .navigation-title-text {
+  color: var(--ws-primary, #4f6ef7);
+  font-weight: 650;
+}
+
+body.white-shell.theme-light.theme-dark .navigation-conversation-row.active,
+body.white-shell.theme-light.theme-dark .navigation-conversation-row.nested.active,
+body.white-shell.theme-light.theme-dark .recent-conversation-item.active {
+  border-color: color-mix(in srgb, var(--ws-primary, #9caeff) 36%, var(--ws-border, #3a4a5f));
+  background: color-mix(in srgb, var(--ws-primary, #9caeff) 22%, var(--ws-card, #1e2938));
+  color: var(--ws-primary, #9caeff);
+  box-shadow: none;
+}
+
 /* Every live step paints on this same chip: idle, thinking, retrying,
    generating, waiting, approval, compacting, and queued/running tasks.
    Hug the label, but keep the chip on the left of the toolbar — the
@@ -1866,6 +1892,23 @@ body.white-shell.theme-light.theme-dark #settingsContentBody .compact-settings-s
     width: auto;
   }
 
+  /* The phone drawer used a shared grey hover/active wash. That hid the
+     current conversation among the project children. Keep the same capsule
+     as desktop so "you are here" still reads. */
+  body.white-shell.theme-light .sidebar .navigation-conversation-row.active,
+  body.white-shell.theme-light .sidebar .navigation-conversation-row.nested.active,
+  body.white-shell.theme-light .sidebar .recent-conversation-item.active {
+    border-color: color-mix(in srgb, var(--ws-primary, #4f6ef7) 28%, var(--ws-border, #e5e7eb));
+    background: color-mix(in srgb, var(--ws-primary, #4f6ef7) 16%, var(--ws-card, #fff));
+    color: var(--ws-primary, #4f6ef7);
+    box-shadow: none;
+  }
+
+  body.white-shell.theme-light .sidebar .navigation-conversation-row.active .navigation-conversation-title {
+    color: var(--ws-primary, #4f6ef7);
+    font-weight: 650;
+  }
+
 
 
   body.white-shell.theme-light .mobile-topbar {
@@ -2301,6 +2344,13 @@ body.white-shell.theme-light.theme-dark #settingsContentBody .compact-settings-s
 
   body.white-shell.theme-light .composer-status.is-busy {
     display: inline-flex !important;
+  }
+
+  /* One status line on the phone. The summary already carries the live step;
+     a second busy pill stacked another "思考中" plus every current verb. */
+  body.white-shell.theme-light .composer-toolbar:has(.composer-task-summary.has-foreground-activity:not(:disabled)) .composer-status,
+  body.white-shell.theme-light .composer-toolbar:has(.composer-task-summary.has-task:not(:disabled)) .composer-status {
+    display: none !important;
   }
 
   body.white-shell.theme-light .composer-controls {
@@ -4363,9 +4413,9 @@ body.white-shell.theme-light #sendMessageBtn.is-stop:hover {
   color: #fff;
 }
 
-/* Phones paint activity on .composer-status, not the task summary. The busy
-   rule is primary-blue for thinking; retrying and waiting-on-child stay amber
-   the way the expanded header already does. */
+/* Activity lives on the task summary. The busy pill is only a fallback when
+   that summary is gone; retrying and waiting-on-child stay amber the way the
+   expanded header already does. */
 body.white-shell.theme-light .composer-status.is-busy[data-activity-tone="retrying"] .composer-status-text,
 body.white-shell.theme-light .composer-status.is-busy[data-activity-tone="waiting"] .composer-status-text {
   color: #d97706;
