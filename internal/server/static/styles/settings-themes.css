@@ -524,6 +524,11 @@ body.white-shell.theme-light.theme-dark [class~="toolbar-model-pill"],
 body.white-shell.theme-light.theme-dark.schedule-mode #newProjectBtn,
 body.white-shell.theme-light.theme-dark.workbench-mode #newTaskBtn:focus-visible:not(:disabled),
 body.white-shell.theme-light.theme-dark.workbench-mode #newTaskBtn:hover:not(:disabled),
+body.white-shell.theme-light.theme-dark .account-session-brand-mark,
+body.white-shell.theme-light.theme-dark .account-session-field input,
+body.white-shell.theme-light.theme-dark .account-session-field input:focus,
+body.white-shell.theme-light.theme-dark .account-session-toggle,
+body.white-shell.theme-light.theme-dark .message-queue-attachment,
 body.white-shell.theme-light.theme-dark html:has(body.white-shell.theme-light)
  { background: var(--ws-card); border-color: var(--ws-border); }
 
@@ -726,6 +731,16 @@ body.white-shell.theme-light.theme-dark .workspace-editor,
 body.white-shell.theme-light.theme-dark .workspace-entry-main strong,
 body.white-shell.theme-light.theme-dark .workspace-viewport-menu > summary:hover,
 body.white-shell.theme-light.theme-dark .workspace-viewport-menu[open] > summary,
+body.white-shell.theme-light.theme-dark .account-session-brand-name,
+body.white-shell.theme-light.theme-dark .account-session-title,
+body.white-shell.theme-light.theme-dark .account-session-field input,
+body.white-shell.theme-light.theme-dark .attachment-thumb[data-kind="pdf"],
+body.white-shell.theme-light.theme-dark .attachment-thumb[data-kind="docx"],
+body.white-shell.theme-light.theme-dark .attachment-thumb[data-kind="text"],
+body.white-shell.theme-light.theme-dark .attachment-thumb[data-kind="video"],
+body.white-shell.theme-light.theme-dark .attachment-thumb[data-kind="image"],
+body.white-shell.theme-light.theme-dark .message-queue-toggle:is(:hover, :focus-visible),
+body.white-shell.theme-light.theme-dark .terminal-pref strong,
 body.white-shell.theme-light.theme-dark [class~="mobile-brand"]
  { color: var(--ws-text); }
 
@@ -941,7 +956,16 @@ body.white-shell.theme-light.theme-dark .workspace-tree-path,
 body.white-shell.theme-light.theme-dark .workspace-viewport-list .workspace-viewport-btn,
 body.white-shell.theme-light.theme-dark .workspace-viewport-menu > summary,
 body.white-shell.theme-light.theme-dark [class~="mobile-icon-btn"],
-body.white-shell.theme-light.theme-dark [class~="toolbar-lightning-btn"]
+body.white-shell.theme-light.theme-dark [class~="toolbar-lightning-btn"],
+body.white-shell.theme-light.theme-dark .account-session-field,
+body.white-shell.theme-light.theme-dark .account-session-subtitle,
+body.white-shell.theme-light.theme-dark .account-session-toggle-btn,
+body.white-shell.theme-light.theme-dark .global-rail .global-rail-footer-actions .global-rail-theme-toggle,
+body.white-shell.theme-light.theme-dark .global-rail .global-rail-footer-actions button.global-rail-collapse-btn,
+body.white-shell.theme-light.theme-dark .message-queue-head,
+body.white-shell.theme-light.theme-dark .message-queue-attachment,
+body.white-shell.theme-light.theme-dark .terminal-header-actions .ghost-btn.mini,
+body.white-shell.theme-light.theme-dark .terminal-prefs summary
 {
   color: var(--ws-muted);
 }

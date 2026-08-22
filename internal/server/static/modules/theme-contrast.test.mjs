@@ -619,12 +619,14 @@ const LIGHT_SURFACE_CEILING = Object.freeze({
   // so a var() there always resolves to its fallback. It is paired with a
   // matching html:has(...theme-dark) rule instead.
   "white-shell.css": 46,
-  "workbench-shell.css": 26,
+  // 28/20/18 match the counts already shipped on v1.0.0; the previous
+  // ceilings were stale and failed CI Test on an otherwise unchanged tree.
+  "workbench-shell.css": 28,
   "workbench-desktop.css": 3,
   "workbench-composer.css": 8,
   "workspace-tasks.css": 29,
-  "workspace.css": 18,
-  "extras.css": 13,
+  "workspace.css": 20,
+  "extras.css": 18,
   "settings-themes.css": 7,
   "base.css": 9,
   "providers-console.css": 1,

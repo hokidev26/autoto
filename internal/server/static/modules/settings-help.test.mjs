@@ -170,6 +170,7 @@ test("controller opens, renders, closes on Escape, and restores focus", async ()
 test("registered settings renderers expose help-copy markers without hiding critical notices", async () => {
   // model-provider-settings.mjs is a re-export facade; help markers live in the
   // split domain modules (provider-console / model-routing / anthropic accounts).
+  // terminal.mjs is the WebSocket controller, not a settings renderer.
   const rendererFiles = [
     "app-main.mjs",
     "automation-control.mjs",
@@ -186,7 +187,6 @@ test("registered settings renderers expose help-copy markers without hiding crit
     "shared-api-settings.mjs",
     "skills-workbench.mjs",
     "system-settings.mjs",
-    "terminal.mjs",
     "usage-history.mjs",
     "user-admin-settings.mjs",
   ];

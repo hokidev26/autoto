@@ -76,9 +76,10 @@ jobs:
         if: matrix.goos == 'linux'
         # Same packages the CI workflow already installs to build this package,
         # so this is a known-good combination rather than a guess.
+        # Wails v3 (alpha2.117+) defaults to GTK4 + WebKitGTK 6.0 on Linux.
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+          sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev pkg-config gcc
 
       - name: Build desktop shell
         env:

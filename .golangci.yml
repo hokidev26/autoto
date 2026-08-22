@@ -13,6 +13,11 @@ linters:
     - misspell
     - staticcheck
     - unused
+  # v2 does not apply EXC0001 unless this preset is listed. Without it,
+  # errcheck flags every defer store.Close() in tests (the convention here).
+  exclusions:
+    presets:
+      - std-error-handling
 
 formatters:
   enable:

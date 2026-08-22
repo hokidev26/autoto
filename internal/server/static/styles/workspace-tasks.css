@@ -2732,6 +2732,9 @@ body.white-shell.theme-light .background-task-bubble .message-time {
   padding: 0;
   background: transparent;
 }
+.background-task-bubble [data-correct-child-message]::before {
+  content: "↶";
+}
 .background-task-bubble [data-copy-child-message],
 .background-task-bubble [data-correct-child-message] {
   width: 20px;
@@ -3326,7 +3329,7 @@ body.white-shell.theme-light .background-task-bubble.role-assistant .message-rol
 }
 #settingsContentBody .peer-collaboration-lane-kicker {
   margin: 0 0 4px;
-  color: var(--settings-muted-fg, #64748b);
+  color: var(--settings-muted-foreground, #64748b);
   font-size: 11px;
   font-weight: 700;
   letter-spacing: .06em;
